@@ -37,4 +37,5 @@ export const config = {
     // Skip Next.js internals and all static files
     '/((?!_next/static|_next/image|favicon.ico|.*\.(?:jpg|jpeg|png|gif|ico)).*)',
   ],
+  runtime: 'nodejs'
 };
