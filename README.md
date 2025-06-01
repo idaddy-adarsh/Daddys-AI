@@ -1,4 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DaddysAI
+
+A Next.js application with AI capabilities and authentication.
+
+## Deployment Instructions
+
+### Prerequisites
+- Node.js 18.x or later
+- npm or yarn package manager
+- Environment variables set up (see `.env.example`)
+
+### Environment Variables
+Make sure to set up the following environment variables in your deployment platform:
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`: Your Clerk public key
+- `CLERK_SECRET_KEY`: Your Clerk secret key
+- `GOOGLE_AI_API_KEY`: Your Google AI API key
+- `NEXT_PUBLIC_VERCEL_ANALYTICS`: Set to "true" to enable analytics
+
+### Build and Deploy
+
+1. Install dependencies:
+```bash
+npm install
+# or
+yarn install
+```
+
+2. Build the application:
+```bash
+npm run build
+# or
+yarn build
+```
+
+3. Start the production server:
+```bash
+npm start
+# or
+yarn start
+```
+
+### Deployment Platforms
+
+#### Vercel (Recommended)
+1. Connect your repository to Vercel
+2. Configure environment variables in Vercel dashboard
+3. Deploy with default settings
+
+#### Other Platforms
+The application is configured with `output: 'standalone'` in Next.js config, making it suitable for containerized deployments:
+
+1. Build the application
+2. The standalone output will be in `.next/standalone`
+3. Copy the following to your deployment:
+   - `.next/standalone/`
+   - `.next/static` to `.next/standalone/.next/static`
+   - `public` to `.next/standalone/public`
+
+### Post-Deployment Checklist
+- [ ] Verify all environment variables are set
+- [ ] Test authentication flow
+- [ ] Check AI features functionality
+- [ ] Verify static assets and images are loading
+- [ ] Monitor analytics if enabled
+
+## Support
+For issues and support, please create an issue in the repository.
 
 ## Getting Started
 
