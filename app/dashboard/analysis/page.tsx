@@ -35,6 +35,19 @@ interface FormattedChartData {
   close: number;
 }
 
+// Add PriceLine type
+interface PriceLine {
+  id: string;
+  options: {
+    price: number;
+    color: string;
+    lineWidth: number;
+    lineStyle: number;
+    axisLabelVisible: boolean;
+    title: string;
+  };
+}
+
 interface TimeInterval {
   label: string;
   value: string;
@@ -70,37 +83,168 @@ const PRICE_SCALE_WIDTH = 100; // Width of the price scale in pixels
 
 const formatPrice = (price: number): string => {
   return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
+    style: 'decimal',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(price).replace('₹', '₹ ');
+  }).format(price);
+};
+
+const formatTime = (timestamp: number): string => {
+  const date = new Date(timestamp * 1000);
+  return date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 };
 
 export default function AnalysisPage() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<any>(null);
+  const candlestickSeriesRef = useRef<any>(null);
+  const currentCandleRef = useRef<{
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    startTime: number;
+  } | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [ltpData, setLtpData] = useState<LTPData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<TimeInterval>(timeIntervals[1]); // Default to 5M
   const searchParams = useSearchParams();
   const router = useRouter();
   const symbol = searchParams.get('symbol') || '^NSEI';
 
   const fetchLTPData = async () => {
+    // Only fetch LTP data for NIFTY
+    if (symbol !== '^NSEI') {
+      setLtpData(null);
+      return;
+    }
+
     try {
-      const ltpSymbol = symbol === '^NSEI' ? 'NIFTY' : 
-                       symbol === '^NSEBANK' ? 'BANKNIFTY' :
-                       symbol.replace('.NS', '');
+      const response = await fetch(`/api/ltp-calculator?symbol=NIFTY`);
       
-      const response = await fetch(`/api/ltp-calculator?symbol=${ltpSymbol}`);
-      if (!response.ok) throw new Error('Failed to fetch LTP data');
+      if (!response.ok) {
+        if (response.status !== 429) { // Ignore rate limit errors
+          console.error(`Failed to fetch LTP data: ${response.status}`);
+        }
+        return;
+      }
+
       const data = await response.json();
       setLtpData(data);
     } catch (error) {
       console.error('Error fetching LTP data:', error);
-      setLtpData(null);
+    }
+  };
+
+  // Function to get the current 5-minute interval boundaries
+  const getCandleBoundaries = () => {
+    const now = new Date();
+    
+    // Calculate the number of 5-minute intervals since the start of the day
+    const minutesSinceStartOfDay = now.getHours() * 60 + now.getMinutes();
+    const intervalNumber = Math.floor(minutesSinceStartOfDay / 5);
+    
+    // Calculate the start time of the current 5-minute interval
+    const startTime = new Date(now);
+    startTime.setHours(Math.floor(intervalNumber * 5 / 60));
+    startTime.setMinutes((intervalNumber * 5) % 60);
+    startTime.setSeconds(0);
+    startTime.setMilliseconds(0);
+    
+    // Calculate the end time (start time + 5 minutes)
+    const endTime = new Date(startTime);
+    endTime.setMinutes(endTime.getMinutes() + 5);
+
+    // Calculate the previous interval's start time
+    const prevStartTime = new Date(startTime);
+    prevStartTime.setMinutes(prevStartTime.getMinutes() - 5);
+
+    return {
+      currentStartTime: Math.floor(startTime.getTime() / 1000),
+      currentEndTime: Math.floor(endTime.getTime() / 1000),
+      previousStartTime: Math.floor(prevStartTime.getTime() / 1000)
+    };
+  };
+
+  // Function to update latest candle data
+  const updateLatestCandle = async () => {
+    try {
+      const response = await fetch(`/api/yahoo-finance/latest-price?symbol=${symbol}`);
+      if (!response.ok) throw new Error('Failed to fetch latest data');
+      const latestData = await response.json();
+      const price = latestData.price;
+      
+      setCurrentPrice(price);
+
+      // Update LTP data only for NIFTY
+      if (symbol === '^NSEI' && (!ltpData || Date.now() - new Date(ltpData.fetchTime).getTime() > 10000)) {
+        await fetchLTPData();
+      }
+
+      const { currentStartTime, previousStartTime } = getCandleBoundaries();
+
+      setChartData(prevData => {
+        const newData = [...prevData];
+        
+        // Find the current candle if it exists
+        const currentCandleIndex = newData.findIndex(candle => 
+          Number(candle.time) === currentStartTime
+        );
+
+        if (currentCandleIndex === -1) {
+          // If this is the first price for this time period, create a new candle
+          // First, find the previous candle to get the opening price
+          const previousCandle = newData.find(candle => 
+            Number(candle.time) === previousStartTime
+          );
+
+          newData.push({
+            time: currentStartTime.toString(),
+            open: previousCandle ? previousCandle.close : price,
+            high: price,
+            low: price,
+            close: price
+          });
+        } else {
+          // Update existing candle
+          const currentCandle = newData[currentCandleIndex];
+          newData[currentCandleIndex] = {
+            ...currentCandle,
+            high: Math.max(currentCandle.high, price),
+            low: Math.min(currentCandle.low, price),
+            close: price
+          };
+        }
+
+        // Remove any invalid candles (future candles or partial candles)
+        const validData = newData.filter(candle => {
+          const candleTime = Number(candle.time);
+          return candleTime <= currentStartTime && candleTime % 300 === 0; // 300 seconds = 5 minutes
+        });
+        
+        // Sort data by time in ascending order
+        const sortedData = validData.sort((a: ChartData, b: ChartData) => Number(a.time) - Number(b.time));
+
+        // Update the candlestick series with the sorted data
+        if (candlestickSeriesRef.current) {
+          const formattedData = sortedData.map(item => ({
+            ...item,
+            time: Number(item.time) as Time
+          }));
+          candlestickSeriesRef.current.setData(formattedData);
+        }
+
+        return sortedData;
+      });
+    } catch (error) {
+      console.error('Error updating latest candle:', error);
     }
   };
 
@@ -108,137 +252,154 @@ export default function AnalysisPage() {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [marketResponse] = await Promise.all([
-          fetch(`/api/yahoo-finance/intraday?symbol=${symbol}&interval=${selectedInterval.value}&range=${selectedInterval.range}`),
-          fetchLTPData()
-        ]);
-        
+        // Fetch historical 5-minute candles
+        const marketResponse = await fetch(`/api/yahoo-finance/intraday?symbol=${symbol}&interval=${selectedInterval.value}&range=${selectedInterval.range}`);
         if (!marketResponse.ok) throw new Error('Failed to fetch data');
         const data = await marketResponse.json();
-        setChartData(data);
+        
+        // Get current candle boundaries
+        const { currentStartTime } = getCandleBoundaries();
+        
+        // Filter and validate historical data
+        const historicalData = data.filter((candle: ChartData) => {
+          const candleTime = Number(candle.time);
+          return candleTime < currentStartTime && candleTime % 300 === 0;
+        });
+        
+        // Sort historical data by time
+        const sortedData = historicalData.sort((a: ChartData, b: ChartData) => Number(a.time) - Number(b.time));
+        
+        setChartData(sortedData);
+        
+        // Initial LTP fetch only for NIFTY
+        if (symbol === '^NSEI') {
+          await fetchLTPData();
+        } else {
+          setLtpData(null);
+        }
       } catch (error) {
         console.error('Error fetching market data:', error);
         setChartData([]);
+        setLtpData(null);
       }
       setIsLoading(false);
     };
 
     fetchData();
-  }, [symbol, selectedInterval, fetchLTPData]);
+
+    // Set up real-time data updates - update every second
+    const updateInterval = setInterval(updateLatestCandle, 1000);
+
+    return () => {
+      clearInterval(updateInterval);
+    };
+  }, [symbol, selectedInterval]);
 
   useEffect(() => {
     if (!chartContainerRef.current || chartData.length === 0) return;
 
-    const chartOptions: DeepPartial<ChartOptions> = {
-      layout: {
-        background: { type: ColorType.Solid, color: CHART_BACKGROUND },
-        textColor: TEXT_COLOR,
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: 12,
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
-      grid: {
-        vertLines: { 
-          color: GRID_COLOR,
-          style: LineStyle.Solid,
+    // Only create chart if it doesn't exist
+    if (!chartRef.current) {
+      const chartOptions: DeepPartial<ChartOptions> = {
+        layout: {
+          background: { type: ColorType.Solid, color: CHART_BACKGROUND },
+          textColor: TEXT_COLOR,
+          fontFamily: 'Inter, system-ui, sans-serif',
+          fontSize: 12,
+        },
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
+        grid: {
+          vertLines: { 
+            color: GRID_COLOR,
+            style: LineStyle.Solid,
+            visible: true,
+          },
+          horzLines: { 
+            color: GRID_COLOR,
+            style: LineStyle.Solid,
+            visible: true,
+          },
+        },
+        crosshair: {
+          mode: 1,
+          vertLine: {
+            width: 1,
+            color: CROSSHAIR_COLOR,
+            style: LineStyle.Solid,
+            labelBackgroundColor: CROSSHAIR_COLOR,
+          },
+          horzLine: {
+            width: 1,
+            color: CROSSHAIR_COLOR,
+            style: LineStyle.Solid,
+            labelBackgroundColor: CROSSHAIR_COLOR,
+          },
+        },
+        rightPriceScale: {
+          borderColor: BORDER_COLOR,
+          borderVisible: true,
+          scaleMargins: {
+            top: 0.1,
+            bottom: 0.05,
+          },
+          autoScale: true,
           visible: true,
+          alignLabels: true,
+          ticksVisible: true,
+          mode: 1,
+          entireTextOnly: true,
         },
-        horzLines: { 
-          color: GRID_COLOR,
-          style: LineStyle.Solid,
-          visible: true,
-        },
-      },
-      crosshair: {
-        mode: 1,
-        vertLine: {
-          width: 1,
-          color: CROSSHAIR_COLOR,
-          style: LineStyle.Solid,
-          labelBackgroundColor: CROSSHAIR_COLOR,
-        },
-        horzLine: {
-          width: 1,
-          color: CROSSHAIR_COLOR,
-          style: LineStyle.Solid,
-          labelBackgroundColor: CROSSHAIR_COLOR,
-        },
-      },
-      rightPriceScale: {
-        borderColor: BORDER_COLOR,
-        borderVisible: true,
-        scaleMargins: {
-          top: 0.1,
-          bottom: 0.05,
-        },
-        autoScale: true,
-        visible: true,
-        alignLabels: true,
-        ticksVisible: true,
-        mode: 1,
-        entireTextOnly: true,
-      },
-      timeScale: {
-        borderColor: BORDER_COLOR,
-        timeVisible: true,
-        secondsVisible: false,
-        borderVisible: true,
-        rightOffset: 0,
-        barSpacing: 6,
-        minBarSpacing: 2,
-        fixLeftEdge: true,
-        fixRightEdge: true,
-        lockVisibleTimeRangeOnResize: true,
-      },
-      localization: {
-        timeFormatter: (time: number) => {
-          const date = new Date(Number(time) * 1000);
-          return selectedInterval.value === '1d' 
-            ? date.toLocaleDateString()
-            : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        },
-        priceFormatter: (price: number) => {
-          if (price >= 10000) {
-            return `₹${(price / 1000).toFixed(1)}K`;
+        timeScale: {
+          borderColor: BORDER_COLOR,
+          timeVisible: true,
+          secondsVisible: false,
+          borderVisible: true,
+          rightOffset: 0,
+          barSpacing: 6,
+          minBarSpacing: 2,
+          fixLeftEdge: true,
+          fixRightEdge: true,
+          lockVisibleTimeRangeOnResize: true,
+          tickMarkFormatter: (time: number) => {
+            return formatTime(time);
           }
-          return `₹${price.toFixed(2)}`;
         },
-      },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: true,
-      },
-      handleScale: {
-        axisPressedMouseMove: {
-          time: true,
-          price: true,
+        localization: {
+          timeFormatter: (time: number) => {
+            return formatTime(time);
+          },
+          priceFormatter: (price: number) => {
+            return formatPrice(price);
+          },
         },
-        mouseWheel: true,
-        pinch: true,
-      },
-    };
+        handleScroll: {
+          mouseWheel: true,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: true,
+        },
+        handleScale: {
+          axisPressedMouseMove: {
+            time: true,
+            price: true,
+          },
+          mouseWheel: true,
+          pinch: true,
+        },
+      };
 
-    const chart = createChart(chartContainerRef.current, chartOptions);
-
-    try {
-      const candlestickSeries = chart.addCandlestickSeries({
+      chartRef.current = createChart(chartContainerRef.current, chartOptions);
+      candlestickSeriesRef.current = chartRef.current.addCandlestickSeries({
         upColor: UP_COLOR,
         downColor: DOWN_COLOR,
         borderVisible: false,
         wickUpColor: UP_COLOR,
         wickDownColor: DOWN_COLOR,
         priceFormat: {
-          type: 'custom',
+          type: 'price',
+          precision: 2,
           minMove: 0.01,
-          formatter: (price: number) => {
-            if (price >= 10000) {
-              return `₹${(price / 1000).toFixed(1)}K`;
-            }
-            return `₹${price.toFixed(2)}`;
-          },
         },
         lastValueVisible: true,
         priceLineVisible: true,
@@ -246,227 +407,206 @@ export default function AnalysisPage() {
         priceLineColor: BORDER_COLOR,
         priceLineStyle: LineStyle.Solid,
       });
+    }
 
-      // Convert ISO strings to timestamps for the chart
-      const formattedData: FormattedChartData[] = chartData.map(item => ({
-        ...item,
-        time: Number(item.time) as Time
-      }));
+    // Update data
+    const formattedData = chartData.map(item => ({
+      ...item,
+      time: Number(item.time) as Time
+    }));
 
-      candlestickSeries.setData(formattedData);
+    candlestickSeriesRef.current.setData(formattedData);
 
-      // Create price lines for support and resistance levels
-      if (ltpData) {
-        const priceLevels = [
-          {
-            price: ltpData.riskyResistance,
-            color: '#FF5252',
-            lineWidth: 2 as LineWidth,
-            lineStyle: LineStyle.Solid,
-            title: 'Risky R'
-          },
-          {
-            price: ltpData.moderateResistance,
-            color: '#FF8A80',
-            lineWidth: 1 as LineWidth,
-            lineStyle: LineStyle.Dashed,
-            title: 'Mod R'
-          },
-          {
-            price: ltpData.rMaxGain,
-            color: '#E040FB',
-            lineWidth: 1 as LineWidth,
-            lineStyle: LineStyle.Dotted,
-            title: 'R Target'
-          },
-          {
-            price: ltpData.rMaxPain,
-            color: '#FFB74D',
-            lineWidth: 1 as LineWidth,
-            lineStyle: LineStyle.Dotted,
-            title: 'R SL'
-          },
-          {
-            price: ltpData.riskySupport,
-            color: '#4CAF50',
-            lineWidth: 2 as LineWidth,
-            lineStyle: LineStyle.Solid,
-            title: 'Risky S'
-          },
-          {
-            price: ltpData.moderateSupport,
-            color: '#81C784',
-            lineWidth: 1 as LineWidth,
-            lineStyle: LineStyle.Dashed,
-            title: 'Mod S'
-          },
-          {
-            price: ltpData.sMaxGain,
-            color: '#E040FB',
-            lineWidth: 1 as LineWidth,
-            lineStyle: LineStyle.Dotted,
-            title: 'S Target'
-          },
-          {
-            price: ltpData.sMaxPain,
-            color: '#FFB74D',
-            lineWidth: 1 as LineWidth,
-            lineStyle: LineStyle.Dotted,
-            title: 'S SL'
-          }
-        ];
+    // Update price lines only for NIFTY
+    if (symbol === '^NSEI' && ltpData) {
+      // Remove existing price lines
+      if (candlestickSeriesRef.current._priceLines) {
+        candlestickSeriesRef.current._priceLines.forEach((line: PriceLine) => {
+          candlestickSeriesRef.current.removePriceLine(line);
+        });
+      }
+      candlestickSeriesRef.current._priceLines = [] as PriceLine[];
 
-        // Only create lines for valid price levels
-        priceLevels.forEach(level => {
-          if (level.price && level.price !== null && !isNaN(Number(level.price))) {
-            candlestickSeries.createPriceLine({
+      // Define all price levels with their properties
+      const priceLevels = [
+        {
+          price: ltpData.riskyResistance,
+          color: '#FF5252',
+          lineWidth: 2 as LineWidth,
+          lineStyle: LineStyle.Solid,
+          title: 'Risky R',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.moderateResistance,
+          color: '#FF8A80',
+          lineWidth: 1 as LineWidth,
+          lineStyle: LineStyle.Dashed,
+          title: 'Mod R',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.rMaxGain,
+          color: '#4CAF50',
+          lineWidth: 1 as LineWidth,
+          lineStyle: LineStyle.Dotted,
+          title: 'R Target',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.rMaxPain,
+          color: '#FF9800',
+          lineWidth: 1 as LineWidth,
+          lineStyle: LineStyle.Dotted,
+          title: 'R SL',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.riskySupport,
+          color: '#4CAF50',
+          lineWidth: 2 as LineWidth,
+          lineStyle: LineStyle.Solid,
+          title: 'Risky S',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.moderateSupport,
+          color: '#81C784',
+          lineWidth: 1 as LineWidth,
+          lineStyle: LineStyle.Dashed,
+          title: 'Mod S',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.sMaxGain,
+          color: '#4CAF50',
+          lineWidth: 1 as LineWidth,
+          lineStyle: LineStyle.Dotted,
+          title: 'S Target',
+          axisLabelVisible: true,
+        },
+        {
+          price: ltpData.sMaxPain,
+          color: '#FF9800',
+          lineWidth: 1 as LineWidth,
+          lineStyle: LineStyle.Dotted,
+          title: 'S SL',
+          axisLabelVisible: true,
+        }
+      ];
+
+      // Get all valid prices including candle data
+      const allPrices = [...chartData.flatMap(candle => [
+        Number(candle.high),
+        Number(candle.low)
+      ]), ...priceLevels
+        .map(level => level.price)
+        .filter(price => price && !isNaN(Number(price)))
+      ].filter(price => !isNaN(price)) as number[];
+
+      // Calculate the min and max prices
+      const minPrice = Math.min(...allPrices);
+      const maxPrice = Math.max(...allPrices);
+      
+      // Calculate price range and padding
+      const priceRange = maxPrice - minPrice;
+      const padding = priceRange * 0.1; // 10% padding
+
+      // Set the visible range with padding
+      chartRef.current.applyOptions({
+        rightPriceScale: {
+          autoScale: false,
+          scaleMargins: {
+            top: 0.2,    // Increased top margin
+            bottom: 0.2, // Increased bottom margin
+          },
+        },
+      });
+
+      // Apply the price range to the series
+      candlestickSeriesRef.current.applyOptions({
+        autoscaleInfoProvider: () => ({
+          priceRange: {
+            minValue: minPrice - padding,
+            maxValue: maxPrice + padding,
+          },
+        }),
+      });
+
+      // Create price lines
+      priceLevels.forEach(level => {
+        if (level.price && level.price !== null && !isNaN(Number(level.price))) {
+          try {
+            const priceLine = candlestickSeriesRef.current.createPriceLine({
               price: Number(level.price),
               color: level.color,
               lineWidth: level.lineWidth,
               lineStyle: level.lineStyle,
-              axisLabelVisible: true,
-              title: level.title,
+              axisLabelVisible: level.axisLabelVisible,
+              title: `${level.title} (${formatPrice(level.price)})`,
             });
+
+            // Store the price line reference
+            if (!candlestickSeriesRef.current._priceLines) {
+              candlestickSeriesRef.current._priceLines = [];
+            }
+            candlestickSeriesRef.current._priceLines.push(priceLine);
+          } catch (error) {
+            console.error(`Error creating price line for ${level.title}:`, error);
           }
+        }
+      });
+
+      // Ensure the chart fits all data
+      chartRef.current.timeScale().fitContent();
+    } else {
+      // For other symbols, just ensure proper chart scaling
+      const prices = chartData.flatMap(candle => [Number(candle.high), Number(candle.low)]);
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const padding = (maxPrice - minPrice) * 0.1;
+
+      chartRef.current.applyOptions({
+        rightPriceScale: {
+          autoScale: false,
+          scaleMargins: {
+            top: 0.2,
+            bottom: 0.2,
+          },
+        },
+      });
+
+      candlestickSeriesRef.current.applyOptions({
+        autoscaleInfoProvider: () => ({
+          priceRange: {
+            minValue: minPrice - padding,
+            maxValue: maxPrice + padding,
+          },
+        }),
+      });
+    }
+
+    // Handle resize
+    const handleResize = () => {
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight,
         });
       }
+    };
 
-      // Add symbol info and stats container
-      const statsContainer = document.createElement('div');
-      statsContainer.className = 'absolute top-4 left-4 space-y-2 z-10';
-      
-      // Symbol info
-      const symbolInfo = document.createElement('div');
-      symbolInfo.className = 'bg-gray-800/90 backdrop-blur px-4 py-2 rounded-lg border border-gray-700';
-      
-      const symbolName = document.createElement('div');
-      symbolName.className = 'text-lg font-semibold text-white';
-      symbolName.textContent = symbol;
-      
-      const symbolStats = document.createElement('div');
-      symbolStats.className = 'flex items-center space-x-4 mt-1 text-sm';
-      
-      const lastPrice = formattedData[formattedData.length - 1];
-      const prevPrice = formattedData[formattedData.length - 2];
-      const priceChange = lastPrice.close - prevPrice.close;
-      const priceChangePercent = (priceChange / prevPrice.close) * 100;
-      
-      symbolStats.innerHTML = `
-        <span class="text-gray-300">${formatPrice(lastPrice.close)}</span>
-        <span class="${priceChange >= 0 ? 'text-green-400' : 'text-red-400'} flex items-center">
-          ${priceChange >= 0 ? '▲' : '▼'} ${formatPrice(Math.abs(priceChange)).replace('₹ ', '')} (${Math.abs(priceChangePercent).toFixed(2)}%)
-        </span>
-      `;
+    window.addEventListener('resize', handleResize);
 
-      // Add market direction if available
-      if (ltpData && ltpData.direction) {
-        const directionDiv = document.createElement('div');
-        directionDiv.className = `text-sm mt-2 ${
-          ltpData.direction === 'BULLISH' ? 'text-green-400' :
-          ltpData.direction === 'BEARISH' ? 'text-red-400' :
-          'text-yellow-400'
-        }`;
-        directionDiv.textContent = ltpData.direction;
-        symbolStats.appendChild(directionDiv);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        candlestickSeriesRef.current = null;
       }
-
-      symbolInfo.appendChild(symbolName);
-      symbolInfo.appendChild(symbolStats);
-      statsContainer.appendChild(symbolInfo);
-
-      // Add time intervals
-      const intervals = document.createElement('div');
-      intervals.className = 'flex bg-gray-800/90 backdrop-blur rounded-lg border border-gray-700 p-1';
-      
-      timeIntervals.forEach(interval => {
-        const button = document.createElement('button');
-        button.className = `px-3 py-1 rounded text-sm font-medium transition-colors ${
-          selectedInterval.value === interval.value 
-            ? 'bg-orange-500 text-white' 
-            : 'text-gray-400 hover:text-white'
-        }`;
-        button.textContent = interval.label;
-        button.onclick = () => setSelectedInterval(interval);
-        intervals.appendChild(button);
-      });
-      
-      statsContainer.appendChild(intervals);
-      chartContainerRef.current.appendChild(statsContainer);
-
-      // Create crosshair info container
-      const crosshairInfo = document.createElement('div');
-      crosshairInfo.className = 'hidden absolute top-4 right-4 bg-gray-800/90 backdrop-blur px-4 py-2 rounded-lg border border-gray-700 z-10';
-      chartContainerRef.current.appendChild(crosshairInfo);
-
-      // Subscribe to crosshair move
-      chart.subscribeCrosshairMove(param => {
-        if (
-          param.point === undefined ||
-          !param.time ||
-          param.point.x < 0 ||
-          param.point.y < 0
-        ) {
-          crosshairInfo.style.display = 'none';
-          return;
-        }
-
-        const data = param.seriesData.get(candlestickSeries) as FormattedChartData;
-        if (!data) {
-          crosshairInfo.style.display = 'none';
-          return;
-        }
-
-        crosshairInfo.style.display = 'block';
-        const date = new Date(Number(data.time) * 1000);
-        const color = data.close >= data.open ? UP_COLOR : DOWN_COLOR;
-        
-        crosshairInfo.innerHTML = `
-          <div class="text-sm font-medium text-white mb-1">
-            ${selectedInterval.value === '1d' 
-              ? date.toLocaleDateString() 
-              : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }
-          </div>
-          <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <div class="text-gray-400">Open</div>
-            <div class="text-right" style="color: ${color}">${formatPrice(data.open)}</div>
-            <div class="text-gray-400">High</div>
-            <div class="text-right text-green-400">${formatPrice(data.high)}</div>
-            <div class="text-gray-400">Low</div>
-            <div class="text-right text-red-400">${formatPrice(data.low)}</div>
-            <div class="text-gray-400">Close</div>
-            <div class="text-right" style="color: ${color}">${formatPrice(data.close)}</div>
-          </div>
-        `;
-      });
-
-      // Handle resize
-      const handleResize = () => {
-        if (chartContainerRef.current) {
-          chart.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight,
-          });
-        }
-      };
-
-      window.addEventListener('resize', handleResize);
-
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        chart.remove();
-        if (chartContainerRef.current?.contains(statsContainer)) {
-          chartContainerRef.current.removeChild(statsContainer);
-        }
-        if (chartContainerRef.current?.contains(crosshairInfo)) {
-          chartContainerRef.current.removeChild(crosshairInfo);
-        }
-      };
-    } catch (error) {
-      console.error('Error creating chart:', error);
-      return () => {};
-    }
-  }, [chartData, selectedInterval, ltpData]);
+    };
+  }, [chartData, ltpData, symbol]);
 
   const handleSymbolClick = (newSymbol: string) => {
     router.push(`/dashboard/analysis?symbol=${newSymbol}`);
@@ -532,7 +672,47 @@ export default function AnalysisPage() {
             <div className="animate-spin rounded-full h-12 w-12 border-2 border-orange-500/20 border-t-orange-500"></div>
           </div>
         ) : (
-          <div ref={chartContainerRef} className="w-full h-full" />
+          <>
+            {/* Info Card */}
+            <div className="absolute top-4 left-4 z-10 bg-gray-800/90 backdrop-blur rounded-lg border border-gray-700 shadow-lg p-4 space-y-2">
+              {/* Symbol and Price */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">
+                    {popularSymbols.find(s => s.symbol === symbol)?.name || symbol}
+                  </h3>
+                  <div className="text-sm text-gray-400">{symbol}</div>
+                </div>
+                {currentPrice && (
+                  <div className="text-xl font-bold text-white">
+                    {formatPrice(currentPrice)}
+                  </div>
+                )}
+              </div>
+
+              {/* Market Direction */}
+              {ltpData?.direction && (
+                <div className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-1.5 ${
+                  ltpData.direction === 'BULLISH' 
+                    ? 'bg-green-500/10 text-green-400'
+                    : ltpData.direction === 'BEARISH'
+                    ? 'bg-red-500/10 text-red-400'
+                    : 'bg-yellow-500/10 text-yellow-400'
+                }`}>
+                  {ltpData.direction === 'BULLISH' ? (
+                    <TrendingUp className="h-4 w-4" />
+                  ) : ltpData.direction === 'BEARISH' ? (
+                    <TrendingDown className="h-4 w-4" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                  <span>{ltpData.direction}</span>
+                </div>
+              )}
+            </div>
+
+            <div ref={chartContainerRef} className="w-full h-full" />
+          </>
         )}
       </div>
     </div>

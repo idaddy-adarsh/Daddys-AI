@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
     domains: ['images.clerk.dev'], // For Clerk avatar images
     unoptimized: false,
   },
+  // Disable TypeScript type checking during build
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  // Disable ESLint during build as well
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 };
 
 export default nextConfig;

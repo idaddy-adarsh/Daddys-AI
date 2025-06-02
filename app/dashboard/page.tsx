@@ -12,6 +12,13 @@ type Message = {
   content: string;
 };
 
+// Declare puter for TypeScript
+declare global {
+  interface Window {
+    puter: any;
+  }
+}
+
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
   const [greeting, setGreeting] = useState('');
@@ -21,6 +28,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isPuterLoaded, setIsPuterLoaded] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -31,6 +39,43 @@ export default function DashboardPage() {
     backgroundImage: `radial-gradient(circle at ${glowPosition.x}% ${glowPosition.y}%, rgba(249, 115, 22, 0.08), transparent 70%)`,
     backgroundBlendMode: 'soft-light'
   };
+
+  // Add effect to initialize Puter.js
+  useEffect(() => {
+    const loadPuter = () => {
+      const script = document.createElement('script');
+      script.src = 'https://js.puter.com/v2/';
+      script.async = true;
+      
+      script.onload = () => {
+        // Wait a bit to ensure Puter.js is fully initialized
+        setTimeout(() => {
+          if (window.puter?.ai) {
+            setIsPuterLoaded(true);
+            console.log('Puter.js loaded successfully');
+          } else {
+            console.error('Puter.js failed to initialize properly');
+          }
+        }, 1000);
+      };
+
+      script.onerror = () => {
+        console.error('Failed to load Puter.js');
+      };
+
+      document.body.appendChild(script);
+    };
+
+    loadPuter();
+
+    return () => {
+      // Cleanup if needed
+      const script = document.querySelector('script[src="https://js.puter.com/v2/"]');
+      if (script) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
 
   // Set greeting based on time of day
   useEffect(() => {
@@ -166,30 +211,43 @@ export default function DashboardPage() {
     }
     
     try {
-      // Send message to API
-      const response = await fetch('/api/gemini', {
+      console.log('Sending message to API...');
+      
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           messages: [...messages, userMessage],
-        }),
+          systemPrompt: `Your name is Daddy's AI, an intelligent chatbot from India designed to help in trading in the Indian stock market and for general use. You always try to talk in hindi (whatsapp language) formal and sequenced style. You explain everything with a scenario related to LTP calculator and give short replies. You were created by Adarsh Class 8 in Daddy's International School. Never give the same explanation or reply more than once and always give unique replies. Don't tell about any other indicators instead of LTP calculator. Always tell scenarios of LTP calculator for explaining. Be professional and stay focused on the topic. Be respectful and use formal language. Never use informal language like "yaar" and "dost". Say everything clearly about the topic. Never repeat greetings. Try to answer all questions from the database and tell if something is right or wrong. Focus on stock market and LTP calculator queries. Be clear and concise.`
+        })
       });
-      
+
       if (!response.ok) {
-        throw new Error('Failed to get response');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Request failed with status ${response.status}`);
       }
-      
+
       const data = await response.json();
       
+      if (!data.message) {
+        throw new Error('Invalid response format from API');
+      }
+
       // Add assistant response to chat
-      const assistantMessage: Message = { role: 'assistant', content: data.response };
+      const assistantMessage: Message = { 
+        role: 'assistant', 
+        content: data.message 
+      };
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (error: any) {
+      console.error('Error in chat:', error);
       // Add error message to chat
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Sorry, I encountered an error: ${error.message || 'Unknown error occurred'}. Please try again.` 
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -286,7 +344,7 @@ export default function DashboardPage() {
               </motion.div>
               
               <motion.div 
-                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10 w-full max-w-full"
+                className="hidden sm:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10 w-full max-w-full"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.5 }}

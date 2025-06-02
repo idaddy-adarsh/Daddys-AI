@@ -1,10 +1,11 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, BarChart4, DollarSign, Activity, Plus, Minus, RefreshCw, Search, ChevronDown, X, Check, AlertCircle, Copy, Eye, EyeOff, Clock, Calendar, User, Percent, LineChart, CandlestickChart } from 'lucide-react';
+import OptionChain from '@/app/components/OptionChain';
 
 interface Asset {
   id: string;
@@ -33,6 +34,11 @@ interface Trade {
   completedWith?: string;
   remainingAmount?: number;
   originalAmount?: number;
+  lotSize?: number;
+  isOption?: boolean;
+  strikePrice?: number;
+  optionType?: 'CE' | 'PE';
+  premium?: number;
 }
 
 interface MarketIndex {
@@ -52,17 +58,11 @@ interface WatchlistItem extends Asset {
 export default function PortfolioPage() {
   const { user } = useUser();
   
-  // Market data state
-  const [assets, setAssets] = useState<Asset[]>([]);
+  // Initialize states without local storage
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
-  const [selectedInstrumentType, setSelectedInstrumentType] = useState<'all' | 'stocks' | 'indices'>('all');
 
-  // Trade success notification state
-  const [showTradeSuccess, setShowTradeSuccess] = useState(false);
-  const [tradeMessage, setTradeMessage] = useState('');
+  const [assets, setAssets] = useState<Asset[]>([]);
 
-  // Add fund management state
   const [marginDetails, setMarginDetails] = useState({
     availableMargin: 100000,
     usedMargin: 0,
@@ -70,8 +70,28 @@ export default function PortfolioPage() {
     leverage: '5x'
   });
 
+  // Remove localStorage effect
+  useEffect(() => {
+    console.log('Trades updated:', recentTrades);
+    console.log('Assets updated:', assets);
+    console.log('Margin updated:', marginDetails);
+  }, [recentTrades, assets, marginDetails]);
+
+  // Market data state
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+  const [selectedInstrumentType, setSelectedInstrumentType] = useState<'all' | 'stocks' | 'indices'>('all');
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Trade success notification state
+  const [showTradeSuccess, setShowTradeSuccess] = useState(false);
+  const [tradeMessage, setTradeMessage] = useState('');
+
   const [totalPnL, setTotalPnL] = useState(0);
   const [dayPnL, setDayPnL] = useState(0);
+
+  // Add state for option trading
+  const [showOptionChain, setShowOptionChain] = useState(false);
+  const [selectedOption, setSelectedOption] = useState<{ strike: number; type: 'CE' | 'PE' } | null>(null);
 
   // Define market symbols and their Yahoo Finance symbols
   const marketSymbols = {
@@ -126,73 +146,176 @@ export default function PortfolioPage() {
 
   // Function to update market data
   const updateMarketData = async () => {
-    // Update assets with both stocks and tradable indices
-    const stocksData = await Promise.all(
-      marketSymbols.stocks.map(async (stock, index) => {
-        const data = await fetchStockData(stock.symbol);
-        if (data) {
-          return {
-            id: `stock-${index + 1}`,
-            name: data.longName || stock.name,
-            symbol: stock.symbol.replace('.NS', ''),
-            exchange: 'NSE',
-            type: stock.type,
-            amount: 0,
-            value: data.price,
-            change24h: data.changePercent,
-            dayHigh: data.dayHigh,
-            dayLow: data.dayLow,
-            volume: data.volume
-          };
-        }
-        return null;
-      })
-    );
-
-    const tradableIndices = await Promise.all(
-      marketSymbols.indices
-        .filter(index => index.type === 'index')
-        .map(async (index, idx) => {
-          const data = await fetchStockData(index.symbol);
-          if (data) {
-            return {
-              id: `index-${idx + 1}`,
-              name: index.name,
-              symbol: index.symbol,
-              exchange: 'NSE',
-              type: 'index',
-              amount: 0,
-              value: data.price,
-              change24h: data.changePercent,
-              dayHigh: data.dayHigh,
-              dayLow: data.dayLow,
-              volume: data.volume,
-              lotSize: index.lotSize
-            };
+    setIsUpdating(true);
+    try {
+      // Update assets with both stocks and tradable indices
+      const stocksData = await Promise.all(
+        marketSymbols.stocks.map(async (stock, index) => {
+          try {
+            const data = await fetchStockData(stock.symbol);
+            if (data) {
+              return {
+                id: `stock-${index + 1}`,
+                name: data.longName || stock.name,
+                symbol: stock.symbol.replace('.NS', ''),
+                exchange: 'NSE',
+                type: stock.type,
+                amount: 0,
+                value: data.price,
+                change24h: data.changePercent,
+                dayHigh: data.dayHigh,
+                dayLow: data.dayLow,
+                volume: data.volume
+              };
+            }
+          } catch (error) {
+            console.error(`Error processing stock ${stock.symbol}:`, error);
           }
           return null;
         })
-    );
+      );
 
-    setAssets([...stocksData.filter(Boolean), ...tradableIndices.filter(Boolean)] as Asset[]);
+      const tradableIndices = await Promise.all(
+        marketSymbols.indices
+          .filter(index => index.type === 'index')
+          .map(async (index, idx) => {
+            try {
+              const data = await fetchStockData(index.symbol);
+              if (data) {
+                return {
+                  id: `index-${idx + 1}`,
+                  name: index.name,
+                  symbol: index.symbol,
+                  exchange: 'NSE',
+                  type: 'index',
+                  amount: 0,
+                  value: data.price,
+                  change24h: data.changePercent,
+                  dayHigh: data.dayHigh,
+                  dayLow: data.dayLow,
+                  volume: data.volume,
+                  lotSize: index.lotSize
+                };
+              }
+            } catch (error) {
+              console.error(`Error processing index ${index.symbol}:`, error);
+            }
+            return null;
+          })
+      );
+
+      const validStocksData = (stocksData || []).filter(Boolean) as Asset[];
+      const validIndicesData = (tradableIndices || []).filter(Boolean) as Asset[];
+      
+      // Safely update assets by preserving existing options/trades
+      setAssets(prevAssets => {
+        // Keep existing option assets
+        const existingOptions = Array.isArray(prevAssets) ? 
+          prevAssets.filter(a => a && a.type === 'options') : 
+          [];
+        
+        return [...validStocksData, ...validIndicesData, ...existingOptions];
+      });
+    } catch (error) {
+      console.error('Error updating market data:', error);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
-  // Fetch market data on component mount and every minute
+  // Fetch market data on component mount and every second
   useEffect(() => {
+    // Initial fetch
     updateMarketData();
-    const interval = setInterval(updateMarketData, 60000); // Update every minute
+
+    // Set up interval for real-time updates
+    const interval = setInterval(async () => {
+      try {
+        await updateMarketData();
+      } catch (error) {
+        console.error('Error updating market data:', error);
+      }
+    }, 1000); // Update every second
+
+    // Cleanup function to clear interval when component unmounts
     return () => clearInterval(interval);
-  }, []);
+  }, []); // Empty dependency array since updateMarketData is stable
 
   // Initialize watchlist with some stocks
   useEffect(() => {
-    if (assets.length > 0) {
-      setWatchlist([
-        { ...assets[0], alerts: [{ price: assets[0].value * 1.05, condition: 'above' }] },
-        { ...assets[1], alerts: [{ price: assets[1].value * 0.95, condition: 'below' }] }
-      ]);
+    try {
+      if (Array.isArray(assets) && assets.length > 0) {
+        const watchlistItems = assets.slice(0, 2).map(asset => {
+          if (!asset) return null;
+          
+          const assetValue = typeof asset.value === 'number' && !isNaN(asset.value) ? asset.value : 0;
+          
+          return {
+            ...asset,
+            alerts: [{ price: assetValue * 1.05, condition: 'above' }]
+          };
+        }).filter(Boolean) as WatchlistItem[];
+        
+        if (watchlistItems.length > 0) {
+          setWatchlist(watchlistItems);
+        }
+      }
+    } catch (error) {
+      console.error('Error initializing watchlist:', error);
     }
   }, [assets]);
+
+  // Calculate total P&L from active trades
+  useEffect(() => {
+    try {
+      let totalProfit = 0;
+      let dayProfit = 0;
+      const today = new Date().toDateString();
+
+      if (!Array.isArray(recentTrades) || !Array.isArray(assets)) {
+        setTotalPnL(0);
+        setDayPnL(0);
+        return;
+      }
+
+      recentTrades.forEach(trade => {
+        if (!trade) return;
+        
+        const asset = assets.find(a => a && a.symbol === trade.asset);
+        if (!asset) return;
+
+        // Safely access properties with fallbacks
+        const activeAmount = trade.remainingAmount || trade.amount || 0;
+        const assetValue = typeof asset.value === 'number' && !isNaN(asset.value) ? asset.value : 0;
+        const tradePrice = typeof trade.price === 'number' && !isNaN(trade.price) ? trade.price : 0;
+        const lotSize = trade.lotSize || 1;
+        
+        // Calculate values safely
+        const currentValue = activeAmount * assetValue * (trade.isOption ? lotSize : 1);
+        const costBasis = activeAmount * tradePrice * (trade.isOption ? lotSize : 1);
+        const tradePnL = trade.type === 'buy' ? currentValue - costBasis : costBasis - currentValue;
+        
+        totalProfit += tradePnL;
+        
+        // Calculate day's P&L
+        try {
+          if (trade.timestamp && new Date(trade.timestamp).toDateString() === today) {
+            dayProfit += tradePnL;
+          }
+        } catch (e) {
+          console.error('Error calculating day P&L:', e);
+        }
+      });
+
+      setTotalPnL(totalProfit);
+      setDayPnL(dayProfit);
+    } catch (error) {
+      console.error('Error calculating P&L:', error);
+      // Set defaults on error
+      setTotalPnL(0);
+      setDayPnL(0);
+    }
+  }, [recentTrades, assets]);
 
   // Trade Modal State
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -206,36 +329,217 @@ export default function PortfolioPage() {
   const [targetPrice, setTargetPrice] = useState('');
   const [stopLoss, setStopLoss] = useState('');
 
-  // Calculate total P&L from active trades
-  useEffect(() => {
-    let totalProfit = 0;
-    let dayProfit = 0;
-    const today = new Date().toDateString();
-
-    recentTrades.forEach(trade => {
-      const asset = assets.find(a => a.symbol === trade.asset);
-      if (!asset) return;
-
-      const activeAmount = trade.remainingAmount || trade.amount;
-      const currentValue = activeAmount * asset.value;
-      const costBasis = activeAmount * trade.price;
-      const tradePnL = trade.type === 'buy' ? currentValue - costBasis : costBasis - currentValue;
-      
-      totalProfit += tradePnL;
-      
-      // Calculate day's P&L
-      if (new Date(trade.timestamp).toDateString() === today) {
-        dayProfit += tradePnL;
-      }
-    });
-
-    setTotalPnL(totalProfit);
-    setDayPnL(dayProfit);
-  }, [recentTrades, assets]);
-
   const totalValue = assets.reduce((sum, asset) => sum + (asset.amount * asset.value), 0);
   const totalChange24h = assets.reduce((sum, asset) => sum + (asset.amount * asset.value * (asset.change24h / 100)), 0);
 
+  const handleOptionSelect = (strike: number, type: 'CE' | 'PE', premium: number) => {
+    const optionName = `NIFTY ${strike} ${type}`;
+    const optionSymbol = `NIFTY${strike}${type}`;
+    
+    setSelectedOption({ strike, type });
+    const newAsset: Asset = {
+      id: `NIFTY-${type}-${strike}`,
+      name: optionName,
+      symbol: optionSymbol,
+      exchange: 'NSE',
+      type: 'options',
+      amount: 0,
+      value: premium,
+      change24h: 0,
+      lotSize: 50
+    };
+    
+    // Immediately add the asset to the assets list
+    setAssets(prevAssets => {
+      // Check if asset already exists
+      const existingAssetIndex = prevAssets.findIndex(a => a.symbol === optionSymbol);
+      if (existingAssetIndex >= 0) {
+        // Update existing asset with new premium value
+        const updatedAssets = [...prevAssets];
+        updatedAssets[existingAssetIndex] = {
+          ...updatedAssets[existingAssetIndex],
+          value: premium
+        };
+        return updatedAssets;
+      }
+      // Add new asset
+      return [...prevAssets, newAsset];
+    });
+    
+    setSelectedAsset(newAsset);
+    setTradeType('buy');
+    setTradeAmount('50'); // Default to 1 lot
+    setOrderType('market');
+    setProductType('intraday');
+    setShowTradeModal(true);
+    setShowOptionChain(false);
+  };
+
+  // Add this new implementation instead:
+  const updateOptionPricesRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Safe update function
+  const safeUpdateOptionPrices = useCallback(() => {
+    try {
+      if (!assets || !Array.isArray(assets)) return;
+      
+      setAssets(currentAssets => {
+        if (!currentAssets || !Array.isArray(currentAssets)) return currentAssets;
+        
+        return currentAssets.map(asset => {
+          if (!asset || typeof asset !== 'object') return asset;
+          if (asset.type !== 'options') return asset;
+          
+          // Safe price calculation
+          const currentValue = typeof asset.value === 'number' && !isNaN(asset.value) 
+            ? asset.value 
+            : 0.05;
+          const currentChange = typeof asset.change24h === 'number' && !isNaN(asset.change24h)
+            ? asset.change24h
+            : 0;
+            
+          // Generate price movement
+          const priceChange = (Math.random() - 0.5) * 2;
+          const newValue = Math.max(0.05, currentValue * (1 + priceChange / 100));
+          
+          return {
+            ...asset,
+            value: newValue,
+            change24h: currentChange + priceChange
+          };
+        });
+      });
+    } catch (error) {
+      console.error('Error in safeUpdateOptionPrices:', error);
+    }
+  }, [assets]);
+
+  // Setup and cleanup the interval
+  useEffect(() => {
+    try {
+      // Clear any existing interval
+      if (updateOptionPricesRef.current) {
+        clearInterval(updateOptionPricesRef.current);
+        updateOptionPricesRef.current = null;
+      }
+      
+      // Check if we have any option assets before setting up interval
+      const hasOptions = Array.isArray(assets) && 
+        assets.some(asset => asset && typeof asset === 'object' && asset.type === 'options');
+      
+      if (hasOptions) {
+        updateOptionPricesRef.current = setInterval(() => {
+          safeUpdateOptionPrices();
+        }, 5000);
+      }
+      
+      // Cleanup function
+      return () => {
+        if (updateOptionPricesRef.current) {
+          clearInterval(updateOptionPricesRef.current);
+          updateOptionPricesRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error('Error setting up option price updates:', error);
+    }
+  }, [assets, safeUpdateOptionPrices]);
+
+  // Add a function to exit a position
+  const exitPosition = (trade: Trade) => {
+    // If no trade or asset, do nothing
+    if (!trade) return;
+    const asset = assets.find(a => a && a.symbol === trade.asset);
+    if (!asset) return;
+    
+    // Set up the exit trade with opposite type
+    setSelectedAsset(asset);
+    setTradeType(trade.type === 'buy' ? 'sell' : 'buy');
+    setTradeAmount((trade.remainingAmount || trade.amount).toString());
+    setOrderType('market');
+    setProductType('intraday');
+    setShowTradeModal(true);
+  };
+
+  // Add a function to close a position immediately
+  const closePosition = (trade: Trade) => {
+    // If no trade or asset, do nothing
+    if (!trade) return;
+    const asset = assets.find(a => a && a.symbol === trade.asset);
+    if (!asset) return;
+    
+    // Create an exit trade with opposite type
+    const exitType = trade.type === 'buy' ? 'sell' : 'buy';
+    const exitAmount = trade.remainingAmount || trade.amount;
+    const currentPrice = asset.value;
+    
+    // Create the exit trade with the correct type
+    const exitTrade: Trade = {
+      id: String(Date.now()),
+      type: exitType,
+      asset: trade.asset,
+      amount: exitAmount,
+      price: currentPrice,
+      timestamp: new Date().toISOString(),
+      orderType: 'market',
+      status: 'executed',
+      originalAmount: exitAmount,
+      lotSize: trade.lotSize,
+      isOption: trade.isOption,
+      strikePrice: trade.strikePrice,
+      optionType: trade.optionType,
+      premium: trade.isOption ? currentPrice : undefined,
+      completedWith: trade.id
+    };
+    
+    // Calculate values for margin update
+    const isOption = trade.isOption;
+    const lotSize = trade.lotSize || 1;
+    const contractMultiplier = isOption ? lotSize : 1;
+    const tradeValue = exitAmount * currentPrice * contractMultiplier;
+    
+    // Update the original trade status
+    const updatedTrades = recentTrades.map(t => {
+      if (t.id === trade.id) {
+        // Create a new trade object with the updated status
+        return {
+          ...t,
+          status: 'completed' as const,
+          completedWith: exitTrade.id
+        };
+      }
+      return t;
+    }) as Trade[]; // Cast to Trade[] to ensure type safety
+    
+    // Add the exit trade
+    const newTrades = [exitTrade, ...updatedTrades];
+    
+    // Calculate updated margin
+    const updatedMargin = {
+      ...marginDetails,
+      availableMargin: exitType === 'buy' ? 
+        marginDetails.availableMargin - tradeValue : 
+        marginDetails.availableMargin + tradeValue,
+      usedMargin: exitType === 'buy' ?
+        marginDetails.usedMargin + tradeValue :
+        marginDetails.usedMargin - tradeValue
+    };
+    
+    // Update state
+    setMarginDetails(updatedMargin);
+    setRecentTrades(newTrades);
+    
+    // Show success message
+    const quantityText = isOption ? 
+      `${exitAmount} contracts (${exitAmount/lotSize} lots)` : 
+      `${exitAmount} shares`;
+      
+    setTradeMessage(`Position closed: ${exitType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${asset.name} at ₹${currentPrice}`);
+    setShowTradeSuccess(true);
+    setTimeout(() => setShowTradeSuccess(false), 5000);
+  };
+
+  // Update the handleTrade function to check for matching trades
   const handleTrade = () => {
     if (!selectedAsset || !tradeAmount) return;
 
@@ -248,8 +552,8 @@ export default function PortfolioPage() {
       return;
     }
 
-    // For indices, validate lot size
-    if (selectedAsset.type === 'index' && selectedAsset.lotSize) {
+    // For options and indices, validate lot size
+    if ((selectedAsset.type === 'options' || selectedAsset.type === 'index') && selectedAsset.lotSize) {
       if (newTradeAmount % selectedAsset.lotSize !== 0) {
         setTradeMessage(`Quantity must be in multiples of ${selectedAsset.lotSize} lots`);
         setShowTradeSuccess(true);
@@ -262,8 +566,12 @@ export default function PortfolioPage() {
       orderType === 'stop' ? parseFloat(stopPrice) :
       parseFloat(limitPrice);
 
-    const tradeValue = newTradeAmount * tradePrice;
-    
+    // Calculate total trade value including premium for options
+    const isOption = selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE');
+    const lotSize = selectedAsset.lotSize || 1;
+    const contractMultiplier = isOption ? lotSize : 1;
+    const tradeValue = newTradeAmount * tradePrice * contractMultiplier;
+
     // Check if enough funds available for buy
     if (tradeType === 'buy' && tradeValue > marginDetails.availableMargin) {
       setTradeMessage('Insufficient funds for this trade');
@@ -271,122 +579,125 @@ export default function PortfolioPage() {
       return;
     }
 
-    // For sell orders, check if enough shares are available
-    if (tradeType === 'sell') {
-      const existingPosition = recentTrades
-        .filter(t => 
-          t.asset === selectedAsset.symbol && 
-          t.type === 'buy' &&
-          (t.status === 'executed' || t.status === 'partially_completed')
-        )
-        .reduce((total, trade) => total + (trade.remainingAmount || trade.amount), 0);
-
-      const pendingSells = recentTrades
-        .filter(t => 
-          t.asset === selectedAsset.symbol && 
-          t.type === 'sell' &&
-          (t.status === 'executed' || t.status === 'partially_completed')
-        )
-        .reduce((total, trade) => total + (trade.remainingAmount || trade.amount), 0);
-
-      const availableShares = existingPosition - pendingSells;
-
-      if (newTradeAmount > availableShares) {
-        setTradeMessage(`Insufficient shares. Available: ${availableShares}`);
-        setShowTradeSuccess(true);
-        return;
-      }
-    }
-
-    // Check for matching trades to complete
-    let matchingTrades: { trade: Trade, amountToClose: number }[] = [];
+    // Find active opposite trades for the same asset
     let remainingAmount = newTradeAmount;
+    let matchedTrades: { tradeId: string; matchedAmount: number }[] = [];
     
+    // Only look for matches if this is a market order
     if (orderType === 'market') {
-      const existingTrades = recentTrades
-        .filter(t => 
-          t.asset === selectedAsset.symbol && 
-          (t.status === 'executed' || t.status === 'partially_completed') && 
-          t.type !== tradeType
-        )
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      // Get all active opposite trades for this asset
+      const oppositeTrades = recentTrades.filter(t => 
+        t.asset === selectedAsset.symbol && 
+        t.type !== tradeType &&
+        t.status !== 'completed' &&
+        !t.completedWith &&
+        (t.remainingAmount || t.amount) > 0
+      );
 
-      for (const trade of existingTrades) {
+      // Try to match trades
+      for (const trade of oppositeTrades) {
         if (remainingAmount <= 0) break;
         
-        const activeAmount = trade.remainingAmount || trade.amount;
-        if (activeAmount > 0) {
-          const amountToClose = Math.min(remainingAmount, activeAmount);
-          matchingTrades.push({ trade, amountToClose });
-          remainingAmount -= amountToClose;
+        const availableAmount = trade.remainingAmount || trade.amount;
+        
+        if (availableAmount <= remainingAmount) {
+          // Can fully complete this trade
+          matchedTrades.push({
+            tradeId: trade.id,
+            matchedAmount: availableAmount
+          });
+          remainingAmount -= availableAmount;
+        } else {
+          // Can partially complete this trade
+          matchedTrades.push({
+            tradeId: trade.id,
+            matchedAmount: remainingAmount
+          });
+          remainingAmount = 0;
+          break;
         }
       }
     }
 
+    // Create the new trade
     const newTrade: Trade = {
-      id: String(recentTrades.length + 1),
+      id: String(Date.now()),
       type: tradeType,
       asset: selectedAsset.symbol,
       amount: newTradeAmount,
+      remainingAmount: remainingAmount > 0 ? remainingAmount : undefined,
       price: tradePrice,
       timestamp: new Date().toISOString(),
       orderType: orderType,
-      status: orderType === 'market' ? ('executed' as const) : ('pending' as const),
-      originalAmount: newTradeAmount
+      status: matchedTrades.length > 0 && remainingAmount === 0 ? 'completed' as const :
+             matchedTrades.length > 0 ? 'partially_completed' as const :
+             'executed' as const,
+      completedWith: matchedTrades.length > 0 && remainingAmount === 0 ? matchedTrades[0].tradeId : undefined,
+      originalAmount: newTradeAmount,
+      lotSize: selectedAsset.lotSize,
+      isOption: isOption,
+      strikePrice: isOption ? parseInt(selectedAsset.symbol.match(/\d+/)?.[0] || '0') : undefined,
+      optionType: selectedAsset.symbol.includes('CE') ? 'CE' : selectedAsset.symbol.includes('PE') ? 'PE' : undefined,
+      premium: isOption ? tradePrice : undefined
     };
 
-    // Update matching trades status
-    if (matchingTrades.length > 0 && orderType === 'market') {
-      setRecentTrades(prev => prev.map(trade => {
-        const matchingEntry = matchingTrades.find(m => m.trade.id === trade.id);
-        if (matchingEntry) {
-          const currentActive = trade.remainingAmount || trade.amount;
-          const newRemaining = currentActive - matchingEntry.amountToClose;
-          
-          return {
-            ...trade,
-            status: newRemaining > 0 ? 'partially_completed' : 'completed',
-            completedWith: newTrade.id,
-            remainingAmount: newRemaining > 0 ? newRemaining : 0,
-            originalAmount: trade.originalAmount || trade.amount
-          };
-        }
-        return trade;
-      }));
-
-      // If the entire amount is matched, mark the new trade as completed
-      if (remainingAmount <= 0) {
-        newTrade.status = 'completed';
-        newTrade.completedWith = matchingTrades.map(m => m.trade.id).join(',');
-      } else if (remainingAmount < newTradeAmount) {
-        // If partially matched
-        newTrade.status = 'partially_completed';
-        newTrade.remainingAmount = remainingAmount;
-        newTrade.completedWith = matchingTrades.map(m => m.trade.id).join(',');
+    // Update matched trades
+    const updatedTrades = recentTrades.map(trade => {
+      const match = matchedTrades.find(m => m.tradeId === trade.id);
+      if (match) {
+        const currentRemaining = trade.remainingAmount || trade.amount;
+        const newRemaining = currentRemaining - match.matchedAmount;
+        
+        return {
+          ...trade,
+          status: newRemaining <= 0 ? 'completed' as const : 'partially_completed' as const,
+          remainingAmount: newRemaining > 0 ? newRemaining : undefined,
+          completedWith: newTrade.id
+        } as Trade;
       }
-    }
+      return trade;
+    });
 
-    // Update fund balance and margin details for market orders
-    if (orderType === 'market') {
-      setMarginDetails(prev => ({
-        ...prev,
-        availableMargin: tradeType === 'buy' ? 
-          prev.availableMargin - tradeValue : 
-          prev.availableMargin + tradeValue,
-        usedMargin: tradeType === 'buy' ?
-          prev.usedMargin + tradeValue :
-          prev.usedMargin - tradeValue
-      }));
-    }
+    // Add the new trade
+    const finalTrades = [newTrade, ...updatedTrades] as Trade[];
 
-    setRecentTrades(prev => [newTrade, ...prev]);
-    setShowTradeModal(false);
+    // Update margin based on remaining amount
+    const marginAdjustment = remainingAmount * tradePrice * contractMultiplier;
+    const updatedMargin = {
+      ...marginDetails,
+      availableMargin: tradeType === 'buy' ? 
+        marginDetails.availableMargin - marginAdjustment : 
+        marginDetails.availableMargin + marginAdjustment,
+      usedMargin: tradeType === 'buy' ?
+        marginDetails.usedMargin + marginAdjustment :
+        marginDetails.usedMargin - marginAdjustment
+    };
+
+    // Update states
+    setMarginDetails(updatedMargin);
+    setRecentTrades(finalTrades);
+
+    // Show success message
+    const quantityText = isOption ? 
+      `${newTradeAmount} contracts (${newTradeAmount/lotSize} lots)` : 
+      `${newTradeAmount} shares`;
+
+    const matchedText = matchedTrades.length > 0 ? 
+      ` (matched ${matchedTrades.reduce((sum, m) => sum + m.matchedAmount, 0)} ${isOption ? 'contracts' : 'shares'})` : 
+      '';
+
+    const remainingText = remainingAmount > 0 ?
+      ` (${remainingAmount} ${isOption ? 'contracts' : 'shares'} remaining)` :
+      '';
+
     setTradeMessage(
-      `${orderType === 'market' ? '' : 'Order placed: '}${tradeType === 'buy' ? 'Buy' : 'Sell'} ${tradeAmount} ${selectedAsset.symbol} at ₹${tradePrice} (${orderType})`
+      `${orderType === 'market' ? '' : 'Order placed: '}${tradeType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${selectedAsset.name}${matchedText}${remainingText}`
     );
     setShowTradeSuccess(true);
+    setTimeout(() => setShowTradeSuccess(false), 5000);
 
-    // Reset trade form
+    // Close modal and reset form
+    setShowTradeModal(false);
     setTradeAmount('');
     setLimitPrice('');
     setStopPrice('');
@@ -394,6 +705,33 @@ export default function PortfolioPage() {
     setStopLoss('');
     setOrderType('market');
   };
+
+  const handleNiftyTrade = (index: Asset, tradeType: 'buy' | 'sell') => {
+    setShowOptionChain(true);
+  };
+
+  // Add useEffect for debugging
+  useEffect(() => {
+    console.log('Current Trades:', recentTrades);
+    console.log('Current Assets:', assets);
+  }, [recentTrades, assets]);
+
+  // Add this debugging effect
+  useEffect(() => {
+    // Debug log for active trades
+    const activeTrades = recentTrades.filter(trade => 
+      trade.status === 'executed' || trade.status === 'partially_completed'
+    );
+    console.log('Active trades that should be displayed:', activeTrades);
+    
+    // Check if assets exist for trades
+    const missingAssets = activeTrades.filter(trade => 
+      !assets.find(a => a.symbol === trade.asset)
+    );
+    if (missingAssets.length > 0) {
+      console.warn('Trades with missing assets:', missingAssets);
+    }
+  }, [recentTrades, assets]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black">
@@ -446,80 +784,232 @@ export default function PortfolioPage() {
             </div>
           </div>
 
+          {/* Active Positions and Recent Transactions */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Active Positions */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recentTrades
-              .filter(trade => trade.status === 'executed' || trade.status === 'partially_completed')
-              .map(trade => {
-                const asset = assets.find(a => a.symbol === trade.asset);
-                if (!asset) return null;
-                
-                const activeAmount = trade.remainingAmount || trade.amount;
-                const currentValue = activeAmount * asset.value;
-                const costBasis = activeAmount * trade.price;
-                const pnl = trade.type === 'buy' ? currentValue - costBasis : costBasis - currentValue;
-                const pnlPercent = (pnl / costBasis) * 100;
-
-                return (
-                  <div key={trade.id} className="bg-gray-800/50 rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <h3 className="text-white font-semibold">{asset.name}</h3>
-                        <div className="flex items-center text-sm text-gray-400">
-                          <span>{trade.asset}</span>
-                          <span className="mx-1">•</span>
-                          <span>{trade.type.toUpperCase()}</span>
-                          <span className="mx-1">•</span>
-                          <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-full">
-                            {activeAmount} {asset.type === 'index' ? 'lots' : 'shares'}
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          setSelectedAsset(asset);
-                          setTradeType(trade.type === 'buy' ? 'sell' : 'buy');
-                          setTradeAmount(activeAmount.toString());
-                          setOrderType('market');
-                          setProductType('intraday');
-                          setShowTradeModal(true);
-                        }}
-                        className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors flex items-center"
-                      >
-                        <X className="h-3 w-3 mr-1" />
-                        Close Position
-                      </button>
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Entry Price</span>
-                        <span className="text-white">₹{trade.price.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Current Price</span>
-                        <span className="text-white">₹{asset.value.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-400">Position Value</span>
-                        <span className="text-white">₹{currentValue.toLocaleString()}</span>
-                      </div>
-                      <div className={`flex justify-between text-sm ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        <span>P&L</span>
-                        <div className="flex items-center">
-                          {pnl >= 0 ? <ArrowUpRight className="h-4 w-4 mr-1" /> : <ArrowDownRight className="h-4 w-4 mr-1" />}
-                          <span>₹{Math.abs(pnl).toFixed(2)} ({Math.abs(pnlPercent).toFixed(2)}%)</span>
-                        </div>
-                      </div>
-                      {trade.status === 'partially_completed' && trade.originalAmount && (
-                        <div className="flex justify-between text-xs text-gray-400 border-t border-gray-700 pt-2 mt-2">
-                          <span>Original Position</span>
-                          <span>{trade.originalAmount} {asset.type === 'index' ? 'lots' : 'shares'}</span>
-                        </div>
-                      )}
-                    </div>
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">Active Positions</h2>
+                <div className="flex items-center space-x-2">
+                  <button onClick={() => updateMarketData()} className="text-blue-400 hover:text-blue-300">
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+                {!recentTrades || recentTrades.length === 0 ? (
+                  <div className="text-center py-4 text-gray-400">
+                    No active positions. Start trading to see your positions here.
                   </div>
-                );
-              })}
+                ) : (
+                  recentTrades
+                    .filter(trade => {
+                      // Don't show completed trades
+                      if (trade.status === 'completed') return false;
+                      
+                      // Don't show trades that are part of a completed match
+                      if (trade.completedWith) {
+                        const matchedTrade = recentTrades.find(t => t.id === trade.completedWith);
+                        if (matchedTrade) return false;
+                      }
+
+                      // Only show trades with remaining amount
+                      const hasRemainingAmount = (trade.remainingAmount || trade.amount) > 0;
+                      return hasRemainingAmount;
+                    })
+                    .map(trade => {
+                      if (!trade) return null;
+                      
+                      // Find the asset for this trade
+                      const asset = assets?.find(a => a && a.symbol === trade.asset);
+                      
+                      // Skip if asset not found
+                      if (!asset) {
+                        console.warn(`Asset not found for trade ${trade.id}: ${trade.asset}`);
+                        return null;
+                      }
+                      
+                      const activeAmount = trade.remainingAmount || trade.amount;
+                      const lotSize = trade.lotSize || 1;
+                      const totalValue = trade.isOption ? 
+                        activeAmount * trade.price * lotSize :
+                        activeAmount * trade.price;
+                      const currentValue = activeAmount * asset.value * (trade.isOption ? lotSize : 1);
+                      const pnl = trade.type === 'buy' ? currentValue - totalValue : totalValue - currentValue;
+                      const pnlPercent = totalValue > 0 ? (pnl / totalValue) * 100 : 0;
+
+                      return (
+                        <div key={trade.id} className="bg-gray-800/50 rounded-xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <div className="flex items-center">
+                                <h3 className="text-white font-semibold">{asset.name}</h3>
+                                {trade.isOption && (
+                                  <span className="ml-2 text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-full">
+                                    {trade.optionType} {trade.strikePrice}
+                                  </span>
+                                )}
+                                <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                                  trade.status === 'executed' ? 'bg-green-500/20 text-green-400' :
+                                  trade.status === 'partially_completed' ? 'bg-blue-500/20 text-blue-400' :
+                                  'bg-gray-500/20 text-gray-400'
+                                }`}>
+                                  {trade.status.toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="text-sm text-gray-400 mt-1">
+                                {trade.isOption ? (
+                                  <>
+                                    {activeAmount} contracts ({activeAmount/lotSize} lots)
+                                    <span className="mx-1">•</span>
+                                    Premium: ₹{trade.premium?.toFixed(2)}
+                                  </>
+                                ) : (
+                                  <>{activeAmount} shares</>
+                                )}
+                                {trade.status === 'partially_completed' && (
+                                  <span className="text-blue-400 ml-2">
+                                    (Original: {trade.originalAmount})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className={`text-right ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              <div className="flex items-center justify-end">
+                                {pnl >= 0 ? <ArrowUpRight className="h-4 w-4 mr-1" /> : <ArrowDownRight className="h-4 w-4 mr-1" />}
+                                <span>₹{Math.abs(pnl).toFixed(2)}</span>
+                              </div>
+                              <div className="text-sm">
+                                {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-gray-700">
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div>
+                                <span className="text-gray-400">Entry:</span>
+                                <span className="text-white ml-2">₹{trade.price.toFixed(2)}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-gray-400">Current:</span>
+                                <span className="text-white ml-2">₹{asset.value.toFixed(2)}</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-end space-x-2 mt-3">
+                              <button
+                                onClick={() => exitPosition(trade)}
+                                className="px-3 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                Modify
+                              </button>
+                              <button
+                                onClick={() => closePosition(trade)}
+                                className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                Exit Position
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
+
+            {/* Recent Transactions */}
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-white">Recent Transactions</h2>
+                <div className="flex items-center space-x-2">
+                  <button className="text-gray-400 hover:text-white">
+                    <Calendar className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+                {recentTrades.length === 0 ? (
+                  <div className="text-center py-4 text-gray-400">
+                    No transactions yet. Start trading to see your history here.
+                  </div>
+                ) : (
+                  recentTrades
+                    .filter(trade => {
+                      // Don't show completed trades
+                      if (trade.status === 'completed') return false;
+                      
+                      // Don't show trades that are part of a completed match
+                      if (trade.completedWith) return false;
+
+                      // Don't show trades that are matched by other trades
+                      const isMatchedByOtherTrade = recentTrades.some(t => 
+                        t.completedWith === trade.id || 
+                        (t.asset === trade.asset && 
+                         t.type !== trade.type && 
+                         t.timestamp > trade.timestamp)
+                      );
+                      if (isMatchedByOtherTrade) return false;
+
+                      return true;
+                    })
+                    .slice(0, 10)
+                    .map(trade => {
+                      const asset = assets.find(a => a.symbol === trade.asset);
+                      if (!asset) return null;
+
+                      const activeAmount = trade.remainingAmount || trade.amount;
+                      const lotSize = trade.lotSize || 1;
+                      const totalValue = trade.isOption ? 
+                        activeAmount * trade.price * lotSize :
+                        activeAmount * trade.price;
+
+                      return (
+                        <div key={trade.id} className="bg-gray-800/50 rounded-xl p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              {trade.type === 'buy' ? 
+                                <Plus className={`h-4 w-4 text-green-400 mr-2`} /> : 
+                                <Minus className={`h-4 w-4 text-red-400 mr-2`} />}
+                              <div>
+                                <div className="flex items-center">
+                                  <span className="text-white font-medium">
+                                    {trade.type === 'buy' ? 'Bought' : 'Sold'}
+                                  </span>
+                                  {trade.isOption && (
+                                    <span className="ml-2 text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-full">
+                                      {trade.optionType}
+                                    </span>
+                                  )}
+                                  <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
+                                    trade.status === 'executed' ? 'bg-green-500/20 text-green-400' :
+                                    trade.status === 'partially_completed' ? 'bg-blue-500/20 text-blue-400' :
+                                    'bg-gray-500/20 text-gray-400'
+                                  }`}>
+                                    {trade.status.toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className="text-sm text-gray-400">
+                                  {trade.isOption ? (
+                                    `${activeAmount} contracts at ₹${trade.price}`
+                                  ) : (
+                                    `${activeAmount} shares at ₹${trade.price}`
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-white">₹{totalValue.toLocaleString()}</div>
+                              <div className="text-xs text-gray-400">
+                                {new Date(trade.timestamp).toLocaleTimeString()}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -556,9 +1046,10 @@ export default function PortfolioPage() {
               </div>
               <button 
                 onClick={() => updateMarketData()} 
-                className="text-blue-400 hover:text-blue-300 flex items-center"
+                className={`text-blue-400 hover:text-blue-300 flex items-center ${isUpdating ? 'animate-spin' : ''}`}
               >
-                <RefreshCw className="h-5 w-5 mr-1" /> Refresh
+                <RefreshCw className="h-5 w-5 mr-1" />
+                {isUpdating ? 'Updating...' : 'Refresh'}
               </button>
             </div>
           </div>
@@ -590,7 +1081,31 @@ export default function PortfolioPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-white">₹{item.value.toFixed(2)}</p>
+                      <div className={`flex items-center justify-end text-sm ${item.change24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {item.change24h >= 0 ? 
+                          <TrendingUp className="h-4 w-4 mr-1" /> : 
+                          <TrendingDown className="h-4 w-4 mr-1" />
+                        }
+                        {Math.abs(item.change24h).toFixed(2)}%
+                      </div>
                       <div className="flex items-center justify-end space-x-2 mt-2">
+                        {item.symbol === '^NSEI' ? (
+                          <>
+                            <button
+                              onClick={() => handleNiftyTrade(item, 'buy')}
+                              className="px-3 py-1 bg-green-500 text-white rounded-lg text-sm hover:bg-green-600 transition-colors"
+                            >
+                              Buy Options
+                            </button>
+                            <button
+                              onClick={() => handleNiftyTrade(item, 'sell')}
+                              className="px-3 py-1 bg-red-500 text-white rounded-lg text-sm hover:bg-red-600 transition-colors"
+                            >
+                              Sell Options
+                            </button>
+                          </>
+                        ) : (
+                          <>
                         <button
                           onClick={() => {
                             setSelectedAsset(item);
@@ -617,6 +1132,8 @@ export default function PortfolioPage() {
                         >
                           Sell
                         </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -658,7 +1175,11 @@ export default function PortfolioPage() {
               const pnl = trade.type === 'buy' ? currentValue - costBasis : costBasis - currentValue;
               const pnlPercent = (pnl / costBasis) * 100;
 
-              const totalValue = trade.amount * trade.price;
+              const lotSize = trade.lotSize || 1;
+              const totalValue = trade.isOption ? 
+                trade.amount * trade.price * lotSize :
+                trade.amount * trade.price;
+
               const isCompleted = trade.status === 'completed';
               const isPartiallyCompleted = trade.status === 'partially_completed';
               const matchingTrade = trade.completedWith ? recentTrades.find(t => t.id === trade.completedWith) : null;
@@ -683,7 +1204,16 @@ export default function PortfolioPage() {
                       <div>
                         <div className="flex items-center">
                           <p className="text-white font-medium">
-                            {trade.type === 'buy' ? 'Bought' : 'Sold'} {trade.amount} {trade.asset}
+                            {trade.type === 'buy' ? 'Bought' : 'Sold'} {trade.isOption ? (
+                              <>
+                                {trade.amount} contracts ({trade.amount/lotSize} lots) of {asset.name}
+                                <span className="ml-2 text-xs px-2 py-0.5 bg-purple-500/10 text-purple-400 rounded-full">
+                                  {trade.optionType} {trade.strikePrice}
+                                </span>
+                              </>
+                            ) : (
+                              `${trade.amount} ${trade.asset}`
+                            )}
                           </p>
                           <span className={`ml-2 px-2 py-0.5 rounded text-xs ${
                             trade.status === 'executed' ? 'bg-green-500/20 text-green-400' : 
@@ -694,14 +1224,21 @@ export default function PortfolioPage() {
                           }`}>
                             {trade.status === 'partially_completed' ? 'PARTIAL' : trade.status.toUpperCase()}
                           </span>
-                          {isPartiallyCompleted && trade.remainingAmount && (
-                            <span className="ml-2 text-xs text-gray-400">
-                              ({trade.remainingAmount} shares remaining)
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center text-sm text-gray-400 mt-1">
+                          {trade.isOption ? (
+                            <>
+                              <span>Premium: ₹{trade.price.toLocaleString()} per lot</span>
+                              <span className="mx-1">•</span>
+                              <span>Total: ₹{totalValue.toLocaleString()}</span>
+                            </>
+                          ) : (
+                            <>
                           <span>₹{trade.price.toLocaleString()} per share</span>
+                              <span className="mx-1">•</span>
+                              <span>Total: ₹{totalValue.toLocaleString()}</span>
+                            </>
+                          )}
                           <span className="mx-1">•</span>
                           <span>{trade.orderType.toUpperCase()}</span>
                           <span className="mx-1">•</span>
@@ -718,7 +1255,7 @@ export default function PortfolioPage() {
                       <p className="text-white font-medium">₹{totalValue.toLocaleString()}</p>
                       {isPartiallyCompleted && trade.remainingAmount && (
                         <p className="text-sm text-gray-400">
-                          Active: ₹{(trade.remainingAmount * trade.price).toLocaleString()}
+                          Active: ₹{(trade.remainingAmount * trade.price * (trade.isOption ? lotSize : 1)).toLocaleString()}
                         </p>
                       )}
                       <div className="flex items-center justify-end text-sm text-gray-400 mt-1">
@@ -929,6 +1466,39 @@ export default function PortfolioPage() {
                   </div>
                 </div>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Option Chain Modal */}
+        <AnimatePresence>
+          {showOptionChain && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
+            >
+              <motion.div 
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                className="bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-2xl shadow-2xl border border-gray-700 p-6 w-full max-w-6xl my-4"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-white">NIFTY Options Trading</h2>
+                  <button
+                    onClick={() => setShowOptionChain(false)}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+                <OptionChain 
+                  spotPrice={assets.find(a => a.symbol === '^NSEI')?.value || 0}
+                  onStrikeSelect={handleOptionSelect}
+                />
+              </motion.div>
             </motion.div>
           )}
         </AnimatePresence>

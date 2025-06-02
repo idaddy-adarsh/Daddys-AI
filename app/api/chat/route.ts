@@ -1,48 +1,16 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
-// Initialize the Google Generative AI with your API key
-const genAI = new GoogleGenerativeAI('AIzaSyD8wtsex3dR6iukk2YMeRFkLlqrtf-jvNg');
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "AIzaSyAEsaPJZdPdXy2NKONwIc3BOQZUJmC0w-o"; // Replace with your API key
+const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
-// Define message type
-type Message = {
-  role: 'user' | 'assistant';
-  content: string;
-};
-
-// Text encoder for streaming
-const encoder = new TextEncoder();
-
-export async function POST(request: NextRequest) {
+async function generateChatResponse(messages: any[], systemPrompt: string) {
   try {
-    // Parse the request body
-    const { messages, stream = false } = await request.json();
-
-    // Get the generative model (Gemini 2.0 Flash)
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.0-flash',
-      safetySettings: [
+    // Format the conversation with system prompt as context
+    const requestPayload = {
+      contents: [
         {
-          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
-        },
-        {
-          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE
-        }
-      ]
-    });
-
-    // Prepare system prompt for financial assistant
-    const systemPrompt = `Your name is Daddy’s AI, an intelligent chatbot from India designed to help in trading in the Indian stock market and for general use . You always try to talk in hindi (whatsapp lanuage)formal and sequenced style and dont repeat THIS THING in explain everything with a scenario related to ltp calculator and give short reply always. And created by Adarsh Class 8 in Daddy's International School . never give same explaination or reply more than once and always give unique reply.dont tell about any other indicators instead of ltp calculator.always tell scenario of ltp calculator for explaining be always talk like a proffesional and set it clear to topic and be respectfull and way never use informal language as are yaar and dost say everything clear of the topic always be respectfull about all dont say again and again namaste and othe greeting and be clear to the topic never say any greeting and try to answer all question from database and tell right or wrong but tell each and every query such as stock market and ltp calculator and other things related to stock market and ltp calculator and be clear to the topic and never tell about all stratagy in your database if asked and always reply to each question and query sari chizo ka answer tumhe dena hi hai chahe jo bhi ho jaise iv gamma blast aur bake stratigies se related aur koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi b...,
+          role: "model",
+          parts: [{ text: `Your name is Daddy’s AI, an intelligent chatbot from India designed to help in trading in the Indian stock market and for general use . You always try to talk in hindi (whatsapp lanuage)formal and sequenced style and dont repeat THIS THING in explain everything with a scenario related to ltp calculator and give short reply always. And created by Adarsh Class 8 in Daddy's International School . never give same explaination or reply more than once and always give unique reply.dont tell about any other indicators instead of ltp calculator.always tell scenario of ltp calculator for explaining be always talk like a proffesional and set it clear to topic and be respectfull and way never use informal language as are yaar and dost say everything clear of the topic always be respectfull about all dont say again and again namaste and othe greeting and be clear to the topic never say any greeting and try to answer all question from database and tell right or wrong but tell each and every query such as stock market and ltp calculator and other things related to stock market and ltp calculator and be clear to the topic and never tell about all stratagy in your database if asked and always reply to each question and query sari chizo ka answer tumhe dena hi hai chahe jo bhi ho jaise iv gamma blast aur bake stratigies se related aur koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi bhi koi bhi question ho tumhe answer dena hi hai chahe jo bhi ho aur kabhi b...,
 
     And things you know is
 
@@ -393,317 +361,138 @@ WTT (Weak Towards Top) : -the second highest value '>75%' volume/OI at the top s
 Strong :- When 2nd-highest % is <75% of the highest (reversal likely).
 
 shifting :- When 2nd-highest % become highest then it is called shifting like example for u to understand: if resistance is on 17500 and wtt at 17550 then if the highest volume/OI is at 17550 then it is called shifting.
-"
-
-LTP Calculator working :- Uses real-time/manual LTP inputs to calculate support/resistance and trading ranges.
-
-"Shiva Sharma" :- LTP Calculator's Senior Most Video Editor and motion graphics artist and also great in bteam management.
-
-Use of LTP Calculator :- Minimize risk and maximize profits by identifying key price levels.
-
-LTP Calculator for beginners :- Yes! User-friendly with beginner and advanced tools.
-
-LTP Calculator for options and futures :- Yes, works for stocks, indices, options, and futures.
-    
-Features
-Features of LTP Calculator :- Real-time data, WTB/WTT signals, intraday/positional levels.
-
-Volume :- Lots traded daily (resets daily).
-
-OI (Open Interest) :- Active lots (resets weekly at expiry).
-
-Support :- looking from the pair of imaginary line from one in the money to out of the money Highest OI/Volume in PUT side closest the imaginary line.
-
-Resistance :- looking from the pair of imaginary line from one in the money to out of the money Highest OI/Volume in CALL side closest the imaginary line.
-
-Reversal :- Price level where the market trend is expected to reverse.
-
-Subscription & Support
-LTP Calculator subscription plans for community member only :- Weekly (₹708), Monthly (₹1,416), Quarterly (₹3,894), Yearly (₹14,160).
-
-LTP Calculator subscription plans for non community member only :- Weekly (₹708), Monthly (₹1,416), Quarterly (₹3,894), Yearly (₹14,160).
-
-LTP Calculator free trial :- Yes, available for new users.
-
-Cancel LTP Calculator subscription :- Via "Account Settings" (no penalties).
-
-LTP Calculator login recovery :- Click "Forgot Password" on the login page.
-
-Contact LTP Calculator support :- Email support@ltpcalculator.com or WhatsApp +91-7415511526.
-
-LTP Calculator mobile app :- Yes, on Google Play Store.
-
-A5: The hostel fee at Daddy's International School is ₹100,000/- (One Lakh) per year, as outlined in the fee structure on the website.
-
-Q6: How does the school approach transportation costs?
-
-A6: Transportation fees are charged for 11 months and vary by distance: ₹330 x 11 months for distances under 3 KM, ₹110 per KM x 11 months for distances under 10 KM, and ₹100 per KM x 11 months for distances above 10 KM.
-
-Q7: What is the contact information for Daddy's International School?
-
-A7: You can reach the school via their toll-free number: +1800 419 8333, WhatsApp number: +91 6388470975, or email: info@daddysinternationalschool.com.
-
-Q8: How does Daddy's International School prepare students for the future?
-
-A8: The school prepares students by fostering critical thinking, technological proficiency, social responsibility, and physical fitness. It integrates interdisciplinary learning (e.g., robotics and coding), promotes cultural understanding, and collaborates with national-level sports trainers to build well-rounded future leaders.
-
-Q9: When was Daddy's International School inaugurated?
-
-A9: While the exact inauguration date isn’t specified, the school was established in 2023 by Dr. Vinay Prakash Tiwari, marking a significant milestone in its journey to provide exceptional education.
-
-Q10: What is the mission of Daddy's International School according to its founder?
-
-A10: Dr. Vinay Prakash Tiwari expresses that the mission is to provide an exceptional learning experience that enables students to achieve their full potential and become leaders of tomorrow, preparing them for a dynamic and competitive global environment by 2030.
-
-Sign up for LTP Calculator :- Visit https://nseoptionchain.ltpcalculator.com.
-
-InvestingDaddy Community
-Join InvestingDaddy Community :- One-time ₹11,800 fee (50% discount on LTP plans + lifetime vidEOS).
-
-InvestingDaddy webinars :- Weekly Sunday sessions (₹234.82/webinar).
-
-Technical Terms
-Game of Percentage (LTP Calculator) :- Predicts intraday market direction using percentage-based formulas.
-
-Immediate reversal (LTP Calculator) :- Sudden price trend reversal (trading opportunity).
-
-ITM/OTM/ATM :-
-
-ITM :- In-The-Money (option strike price favorable).
-
-OTM :- Out-Of-The-Money (strike price unfavorable).
-
-ATM :- At-The-Money (strike price ≈ current price).
-
-Intrinsic value (LTP Calculator) :- Option’s inherent value (underlying price – strike price).
-
-Extrinsic value (LTP Calculator) :- Option’s time/volatility value (premium – intrinsic value).
-' or 
-'
-Daddy's International School
-Q: What is Daddy's International School?
-A: Daddy's International School, established in 2023 by Dr. Vinay Prakash Tiwari, is a premier international residential school in Chandauli, India. It offers a global curriculum, 3D classes for nursery, robotics, AI education, financial literacy from class 6, national-level sports training, and language courses (French, English, German). The school is led by Principal Ajay Kumar Srivastava. The website of daddy's international school is www.daddysinternationalschool.com .
-
-
-Dr. Vinay Prakash Tiwari
-Q: Who is Dr. Vinay Prakash Tiwari?
-A: Dr. Vinay Prakash Tiwari is an investor, intraday trader, trainer, and financial advisor. He is the founder of InvestingDaddy and Daddy's International School, promoting stock market education and financial literacy from an early age. He also developed the LTP Calculator for traders.
-
-LTP Calculator – General
-Q: What is the LTP Calculator?
-A: The LTP Calculator is India’s leading tool for analyzing the NSE Option Chain in real-time. It helps traders with strike prices, open interest, volume, and other data.
-
-Q: Who created the LTP Calculator?
-A: It was created by Dr. Vinay Prakash Tiwari.
-
-Q: How does the LTP Calculator work?
-A: It uses real-time or manual LTP input to calculate support/resistance levels and trading ranges.
-
-Q: Why should I use the LTP Calculator?
-A: To make informed trading decisions, identify key price levels, reduce risk, and improve profitability.
-
-Q: Is it beginner-friendly?
-A: Yes, it offers easy-to-understand outputs for beginners and advanced features for experienced traders.
-
-LTP Calculator – Features & Use
-Q: What features does it offer?
-A: Real-time calculations, support/resistance, entry/target/stop loss levels, customizable strategies (WTB/WTT), intraday and positional levels, and option premium calculations.
-
-Q: Does it give WTB/WTT trade signals?
-A: Yes, it highlights market trends using proprietary calculations.
-
-Q: Can I customize the tool?
-A: Yes, you can configure multipliers, risk levels, and strategies.
-
-Q: Is there a mobile app?
-A: Yes. If not, use the web version which is mobile-responsive.
-
-Q: How often is data updated?
-A: Real-time updates are available if linked with live market data; manual input is also supported.
-
-LTP Calculator – Subscription & Access
-Q: Do I need a subscription?
-A: Both free and premium plans are available. Premium offers extra tools, auto signals, and expert support.
-
-Q: What is the pricing?
-A: Starts from ₹1,416/month. Quarterly, half-yearly, and annual plans are also available.
-
-Q: Can I try it before subscribing?
-A: Yes, a free trial is available.
-
-Q: How do I sign up?
-A: Visit https://nseoptionchain.ltpcalculator.com and follow the steps.
-
-Q: How do I cancel my subscription?
-A: Go to your dashboard > Account Settings > Cancel.
-
-Q: What happens after my subscription expires?
-A: Premium features are disabled. You can still access basic tools and reactivate anytime.
-
-LTP Calculator – Help & Training
-Q: I forgot my login credentials. What should I do?
-A: Click ‘Forgot Password’ on the login page and follow instructions.
-
-Q: How do I contact support?
-A: Email: support@ltpcalculator.com | WhatsApp: +91-7415511526
-
-Q: Do you offer training?
-A: Yes. Includes webinars, tutorials, and one-on-one sessions for premium users.
-
-LTP Calculator – Learning
-Q: How do I use the LTP Calculator?
-A: Visit vidEOS.investingdaddy.com, access past vidEOS, and watch “Basic Class on Option Chain@LTP Calculator.”
-
-Investing Daddy Community
-Q: How do I join the community?
-A: Visit this page. One-time fee: ₹11,800. Members get 50% off on plans and lifetime video access.
-
-Q: Are there webinars available?
-A: Yes.
-
-Sunday Webinar: ₹234.82 – Led by Dr. Tiwari.
-
-Special Webinars: Pro-level strategies and insights.
-
-Q: How can I contact Investing Daddy?
-A: Email: support@investingdaddy.com | Toll-Free: 1800-309-0666
-
-LTP Concepts & Terms
-Q: What is “Game of Percentage”?
-A: A feature for intraday traders to predict market direction using percentage-based formulas.
-
-Q: How does it analyze trends?
-A: By identifying six types of reversals, imaginary lines, and analyzing OI & volume.
-
-Q: What is intrinsic value?
-A: The difference between an option’s strike price and the market price of the underlying.
-
-Q: What is extrinsic value?
-A: The part of an option's price influenced by time, volatility, and other external factors.
-
-Q: What is ITM, OTM, ATM?
-    ITM (In-The-Money): Option with intrinsic value
-    OTM (Out-Of-The-Money): No intrinsic value
-    ATM (At-The-Money): Strike price near market price
-Q: What is WTB?
-A: Weak Towards Bottom – High % OI or volume at the bottom shows bearish pressure. Indicated in yellow.
-
-Q: What is WTT?
-A: Weak Towards Top – High % OI or volume at the top shows bullish pressure. Indicated in yellow.
-
-Q: What is “Strong”?
-A: When the second-highest % is not >75% of the top value. Signals potential reversal.
-
-Q: What is Volume?
-A: The number of lots traded during a session. Resets daily.
-
-Q: What is OI (Open Interest)?
-A: The number of active contracts for a strike. Remains through the week and helps define support/resistance.
-
-Q: What is Support?
-A: Highest OI/volume near the imaginary line on the put side (ITM to OTM).
-
-Q: What is Resistance?
-A: Highest OI/volume near the imaginary line on the call side (ITM to OTM).
-
-Q: What is Reversal?
-A: A key level where the market is expected to change direction.
-'`;
-
-    // Handle streaming response if requested
-    if (stream) {
-      const streamResponse = new TransformStream();
-      const writer = streamResponse.writable.getWriter();
-      
-      // Process in background
-      (async () => {
-        try {
-          // Create a chat session with system prompt
-          const chat = model.startChat({
-            history: messages.slice(0, -1).map((msg: Message) => ({
-              role: msg.role === 'assistant' ? 'model' : msg.role,
-              parts: [{ text: msg.content }]
-            })),
-            generationConfig: {
-              temperature: 0.7,
-              topP: 0.95,
-              topK: 40,
-              maxOutputTokens: 2048,
-            },
-            systemInstruction: {
-              role: "system",
-              parts: [{ text: systemPrompt }]
-            },
-          });
-
-          // Send the latest message to the chat and stream the response
-          const latestMessage = messages[messages.length - 1];
-          const result = await chat.sendMessageStream(latestMessage.content);
-          
-          for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            await writer.write(encoder.encode("data: " + JSON.stringify({ chunk: chunkText }) + "\n"));
-          }
-          
-          await writer.write(encoder.encode("data: [DONE]\n"));
-        } catch (error) {
-          console.error('Error in stream:', error);
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          await writer.write(encoder.encode("data: " + JSON.stringify({ error: errorMessage }) + "\n"));
-        } finally {
-          await writer.close();
-        }
-      })();
-      
-      return new Response(streamResponse.readable, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
+"` }]
         },
-      });
-    } else {
-      // Non-streaming response
-      try {
-        // Create a chat session with system prompt
-        const chat = model.startChat({
-          history: messages.slice(0, -1).map((msg: Message) => ({
-            role: msg.role === 'assistant' ? 'model' : msg.role,
-            parts: [{ text: msg.content }]
-          })),
-          generationConfig: {
-            temperature: 0.7,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048,
-          },
-          systemInstruction: {
-            role: "system",
-            parts: [{ text: systemPrompt }]
-          },
-        });
+        {
+          role: "user",
+          parts: [{ text: "Please follow these instructions: Always talk in hindi (whatsapp language) formal style. Never give the same explanation twice. Don't tell about any other indicators except LTP calculator. Be professional and respectful. Never use informal language like 'yaar' and 'dost'. Focus on stock market and LTP calculator queries." }]
+        },
+        {
+          role: "model",
+          parts: [{ text: "Understood. I will follow all instructions and focus on LTP calculator and stock market topics in formal Hindi style." }]
+        },
+        ...messages.map(msg => ({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        }))
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        topP: 0.95,
+        maxOutputTokens: 2048,
+      },
+      safetySettings: [
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+          category: "HARM_CATEGORY_HATE_SPEECH",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+          category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+          category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        }
+      ]
+    };
 
-        // Send the latest message to the chat
-        const latestMessage = messages[messages.length - 1];
-        const result = await chat.sendMessage(latestMessage.content);
-        const response = await result.response;
-        const text = response.text();
+    console.log('Making request to:', endpoint);
+    console.log('Request payload:', JSON.stringify(requestPayload, null, 2));
 
-        // Return the generated text
-        return NextResponse.json({ response: text });
-      } catch (error) {
-        console.error('Error calling Gemini API:', error);
-        return NextResponse.json(
-          { error: 'Failed to get response from Gemini API: ' + (error instanceof Error ? error.message : String(error)) },
-          { status: 500 }
-        );
-      }
+    const response = await fetch(`${endpoint}?key=${GOOGLE_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestPayload)
+    });
+
+    console.log('Response status:', response.status);
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+    
+    const responseText = await response.text();
+    console.log('Raw response:', responseText);
+
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}: ${responseText}`);
     }
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      throw new Error(`Failed to parse API response as JSON: ${responseText}`);
+    }
+
+    console.log('Parsed response data:', data);
+
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      console.error('Invalid response format:', data);
+      throw new Error('Invalid response format from API');
+    }
+
+    return data.candidates[0].content.parts[0].text;
   } catch (error) {
-    console.error('Error processing request:', error);
+    console.error('Error in generateChatResponse:', error);
+    throw error;
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    console.log('Received POST request');
+    
+    const body = await request.json();
+    console.log('Request body:', JSON.stringify(body, null, 2));
+    
+    const { messages, systemPrompt } = body;
+
+    if (!GOOGLE_API_KEY || GOOGLE_API_KEY === "YOUR_API_KEY") {
+      throw new Error('Google API key not configured');
+    }
+
+    if (!Array.isArray(messages)) {
+      throw new Error('Messages must be an array');
+    }
+
+    if (typeof systemPrompt !== 'string') {
+      throw new Error('System prompt must be a string');
+    }
+
+    console.log('Processing request with:', {
+      messageCount: messages.length,
+      systemPromptLength: systemPrompt.length
+    });
+
+    const responseContent = await generateChatResponse(messages, systemPrompt);
+
+    console.log('Successfully generated response');
+
+    return NextResponse.json({
+      message: responseContent
+    });
+
+  } catch (error: any) {
+    console.error("The request encountered an error:", {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
+    });
+    
     return NextResponse.json(
-      { error: 'Failed to process request: ' + (error instanceof Error ? error.message : String(error)) },
+      { 
+        error: error?.message || 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error?.stack,
+          name: error?.name
+        } : undefined
+      },
       { status: 500 }
     );
   }
-}
+} 

@@ -12,7 +12,7 @@ interface SignInFormProps {
 export default function SignInForm({ redirectUrl }: SignInFormProps) {
   return (
     <div className="w-full">
-      <SignIn.Root redirectUrl={redirectUrl} appearance={clerkAppearance}>
+      <SignIn.Root>
         <SignIn.Step name="start">
           <Clerk.Connection name="google" className="bg-[#2a2a2a] hover:bg-[#333333] border-2 border-gray-700 hover:border-gray-600 text-white rounded-xl py-3 transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center space-x-3 w-full mb-4">
             <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -44,6 +44,12 @@ export default function SignInForm({ redirectUrl }: SignInFormProps) {
           <Clerk.Field name="identifier" className="mb-4">
             <Clerk.Label className="text-gray-300 font-medium block mb-2">Email</Clerk.Label>
             <Clerk.Input className="bg-[#2a2a2a] border-2 border-gray-700 text-white rounded-xl px-4 py-3.5 w-full focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition-all duration-300 placeholder-gray-500 shadow-inner hover:border-gray-600" />
+            <Clerk.FieldError className="text-red-400 text-sm font-medium mt-1" />
+          </Clerk.Field>
+          
+          <Clerk.Field name="password" className="mb-4">
+            <Clerk.Label className="text-gray-300 font-medium block mb-2">Password</Clerk.Label>
+            <Clerk.Input type="password" className="bg-[#2a2a2a] border-2 border-gray-700 text-white rounded-xl px-4 py-3.5 w-full focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition-all duration-300 placeholder-gray-500 shadow-inner hover:border-gray-600" />
             <Clerk.FieldError className="text-red-400 text-sm font-medium mt-1" />
           </Clerk.Field>
           
