@@ -65,12 +65,235 @@ const timeIntervals: TimeInterval[] = [
 ];
 
 const popularSymbols = [
+  // Indices
   { name: 'NIFTY 50', symbol: '^NSEI' },
   { name: 'Bank NIFTY', symbol: '^NSEBANK' },
-  { name: 'Reliance', symbol: 'RELIANCE.NS' },
+  { name: 'FINNIFTY', symbol: 'NIFTY_FIN_SERVICE.NS' },
+  { name: 'MIDCPNIFTY', symbol: 'MIDCPNIFTY.NS' },
+  { name: 'NIFTYNXT50', symbol: 'NIFTYNXT50.NS' },
+  
+  // Stocks
+  { name: 'HINDALCO', symbol: 'HINDALCO.NS' },
+  { name: 'RVNL', symbol: 'RVNL.NS' },
+  { name: 'IDEA', symbol: 'IDEA.NS' },
+  { name: 'ONGC', symbol: 'ONGC.NS' },
+  { name: 'DABUR', symbol: 'DABUR.NS' },
+  { name: 'AXISBANK', symbol: 'AXISBANK.NS' },
+  { name: 'NBCC', symbol: 'NBCC.NS' },
+  { name: 'ABCAPITAL', symbol: 'ABCAPITAL.NS' },
+  { name: 'AMBUJACEM', symbol: 'AMBUJACEM.NS' },
+  { name: 'MANAPPURAM', symbol: 'MANAPPURAM.NS' },
+  { name: 'IGL', symbol: 'IGL.NS' },
+  { name: 'BANKBARODA', symbol: 'BANKBARODA.NS' },
+  { name: 'SYNGENE', symbol: 'SYNGENE.NS' },
+  { name: 'IEX', symbol: 'IEX.NS' },
+  { name: 'ULTRACEMCO', symbol: 'ULTRACEMCO.NS' },
+  { name: 'TATACONSUM', symbol: 'TATACONSUM.NS' },
+  { name: 'HDFCBANK', symbol: 'HDFCBANK.NS' },
+  { name: 'BOSCHLTD', symbol: 'BOSCHLTD.NS' },
+  { name: 'DLF', symbol: 'DLF.NS' },
+  { name: 'AUROPHARMA', symbol: 'AUROPHARMA.NS' },
+  { name: 'NHPC', symbol: 'NHPC.NS' },
+  { name: 'TRENT', symbol: 'TRENT.NS' },
+  { name: 'BIOCON', symbol: 'BIOCON.NS' },
+  { name: 'HINDUNILVR', symbol: 'HINDUNILVR.NS' },
+  { name: 'NAUKRI', symbol: 'NAUKRI.NS' },
+  { name: 'TATACHEM', symbol: 'TATACHEM.NS' },
+  { name: 'PIIND', symbol: 'PIIND.NS' },
+  { name: 'TITAGARH', symbol: 'TITAGARH.NS' },
+  { name: 'UNITDSPR', symbol: 'UNITDSPR.NS' },
+  { name: 'BPCL', symbol: 'BPCL.NS' },
+  { name: 'GODREJCP', symbol: 'GODREJCP.NS' },
+  { name: 'JIOFIN', symbol: 'JIOFIN.NS' },
+  { name: 'SJVN', symbol: 'SJVN.NS' },
+  { name: 'MANKIND', symbol: 'MANKIND.NS' },
+  { name: 'JINDALSTEL', symbol: 'JINDALSTEL.NS' },
+  { name: 'BHARTIARTL', symbol: 'BHARTIARTL.NS' },
+  { name: 'HEROMOTOCO', symbol: 'HEROMOTOCO.NS' },
+  { name: 'TATAMOTORS', symbol: 'TATAMOTORS.NS' },
+  { name: 'PAYTM', symbol: 'PAYTM.NS' },
+  { name: 'PNBHOUSING', symbol: 'PNBHOUSING.NS' },
+  { name: 'POLYCAB', symbol: 'POLYCAB.NS' },
+  { name: 'LUPIN', symbol: 'LUPIN.NS' },
+  { name: 'ITC', symbol: 'ITC.NS' },
+  { name: 'UNIONBANK', symbol: 'UNIONBANK.NS' },
+  { name: 'SONACOMS', symbol: 'SONACOMS.NS' },
+  { name: 'COALINDIA', symbol: 'COALINDIA.NS' },
+  { name: 'AARTIIND', symbol: 'AARTIIND.NS' },
+  { name: 'TORNTPHARM', symbol: 'TORNTPHARM.NS' },
+  { name: 'KAYNES', symbol: 'KAYNES.NS' },
+  { name: 'BHEL', symbol: 'BHEL.NS' },
+  { name: 'NMDC', symbol: 'NMDC.NS' },
+  { name: 'CDSL', symbol: 'CDSL.NS' },
+  { name: 'CAMS', symbol: 'CAMS.NS' },
+  { name: 'OFSS', symbol: 'OFSS.NS' },
+  { name: 'MOTHERSON', symbol: 'MOTHERSON.NS' },
+  { name: 'COFORGE', symbol: 'COFORGE.NS' },
+  { name: 'MARUTI', symbol: 'MARUTI.NS' },
+  { name: 'KALYANKJIL', symbol: 'KALYANKJIL.NS' },
+  { name: 'ADANIENSOL', symbol: 'ADANIENSOL.NS' },
+  { name: 'RECLTD', symbol: 'RECLTD.NS' },
+  { name: 'JSWSTEEL', symbol: 'JSWSTEEL.NS' },
+  { name: 'FORTIS', symbol: 'FORTIS.NS' },
+  { name: 'TORNTPOWER', symbol: 'TORNTPOWER.NS' },
+  { name: 'DRREDDY', symbol: 'DRREDDY.NS' },
+  { name: 'BHARATFORG', symbol: 'BHARATFORG.NS' },
+  { name: 'IDFCFIRSTB', symbol: 'IDFCFIRSTB.NS' },
+  { name: 'LICI', symbol: 'LICI.NS' },
+  { name: 'SBICARD', symbol: 'SBICARD.NS' },
+  { name: 'PATANJALI', symbol: 'PATANJALI.NS' },
+  { name: 'SBILIFE', symbol: 'SBILIFE.NS' },
+  { name: 'MUTHOOTFIN', symbol: 'MUTHOOTFIN.NS' },
+  { name: 'LTIM', symbol: 'LTIM.NS' },
+  { name: 'BAJAJFINSV', symbol: 'BAJAJFINSV.NS' },
+  { name: 'VBL', symbol: 'VBL.NS' },
+  { name: 'ICICIGI', symbol: 'ICICIGI.NS' },
+  { name: 'INFY', symbol: 'INFY.NS' },
+  { name: 'ADANIPORTS', symbol: 'ADANIPORTS.NS' },
+  { name: 'CGPOWER', symbol: 'CGPOWER.NS' },
+  { name: 'NCC', symbol: 'NCC.NS' },
+  { name: 'ABFRL', symbol: 'ABFRL.NS' },
+  { name: 'MPHASIS', symbol: 'MPHASIS.NS' },
+  { name: 'ETERNAL', symbol: 'ETERNAL.NS' },
+  { name: 'BSOFT', symbol: 'BSOFT.NS' },
+  { name: 'VOLTAS', symbol: 'VOLTAS.NS' },
+  { name: 'PETRONET', symbol: 'PETRONET.NS' },
+  { name: 'JUBLFOOD', symbol: 'JUBLFOOD.NS' },
+  { name: 'HDFCAMC', symbol: 'HDFCAMC.NS' },
+  { name: 'NESTLEIND', symbol: 'NESTLEIND.NS' },
+  { name: 'HDFCLIFE', symbol: 'HDFCLIFE.NS' },
+  { name: 'PEL', symbol: 'PEL.NS' },
+  { name: 'DALBHARAT', symbol: 'DALBHARAT.NS' },
+  { name: 'DMART', symbol: 'DMART.NS' },
+  { name: 'PFC', symbol: 'PFC.NS' },
+  { name: 'RBLBANK', symbol: 'RBLBANK.NS' },
+  { name: 'HINDCOPPER', symbol: 'HINDCOPPER.NS' },
+  { name: 'UPL', symbol: 'UPL.NS' },
+  { name: 'TATACOMM', symbol: 'TATACOMM.NS' },
+  { name: 'LICHSGFIN', symbol: 'LICHSGFIN.NS' },
+  { name: 'PIDILITIND', symbol: 'PIDILITIND.NS' },
+  { name: 'ASIANPAINT', symbol: 'ASIANPAINT.NS' },
+  { name: 'M&MFIN', symbol: 'M&MFIN.NS' },
+  { name: 'ASHOKLEY', symbol: 'ASHOKLEY.NS' },
+  { name: 'APOLLOHOSP', symbol: 'APOLLOHOSP.NS' },
+  { name: 'IOC', symbol: 'IOC.NS' },
+  { name: 'CIPLA', symbol: 'CIPLA.NS' },
+  { name: 'PHOENIXLTD', symbol: 'PHOENIXLTD.NS' },
+  { name: 'MGL', symbol: 'MGL.NS' },
+  { name: 'PAGEIND', symbol: 'PAGEIND.NS' },
+  { name: 'M&M', symbol: 'M&M.NS' },
+  { name: 'HAVELLS', symbol: 'HAVELLS.NS' },
+  { name: 'POLICYBZR', symbol: 'POLICYBZR.NS' },
+  { name: 'TATAPOWER', symbol: 'TATAPOWER.NS' },
+  { name: 'FEDERALBNK', symbol: 'FEDERALBNK.NS' },
+  { name: 'CYIENT', symbol: 'CYIENT.NS' },
+  { name: 'LTF', symbol: 'LTF.NS' },
+  { name: 'TECHM', symbol: 'TECHM.NS' },
+  { name: 'IRCTC', symbol: 'IRCTC.NS' },
   { name: 'TCS', symbol: 'TCS.NS' },
-  { name: 'HDFC Bank', symbol: 'HDFCBANK.NS' },
-  { name: 'Infosys', symbol: 'INFY.NS' },
+  { name: 'INDHOTEL', symbol: 'INDHOTEL.NS' },
+  { name: 'INDUSTOWER', symbol: 'INDUSTOWER.NS' },
+  { name: 'SUNPHARMA', symbol: 'SUNPHARMA.NS' },
+  { name: 'BAJAJ-AUTO', symbol: 'BAJAJ-AUTO.NS' },
+  { name: 'PRESTIGE', symbol: 'PRESTIGE.NS' },
+  { name: 'ZOMATO', symbol: 'ZOMATO.NS' },
+  { name: 'SRF', symbol: 'SRF.NS' },
+  { name: 'CESC', symbol: 'CESC.NS' },
+  { name: 'CROMPTON', symbol: 'CROMPTON.NS' },
+  { name: 'ICICIPRULI', symbol: 'ICICIPRULI.NS' },
+  { name: 'INDIGO', symbol: 'INDIGO.NS' },
+  { name: 'MAXHEALTH', symbol: 'MAXHEALTH.NS' },
+  { name: 'DELHIVERY', symbol: 'DELHIVERY.NS' },
+  { name: 'BAJFINANCE', symbol: 'BAJFINANCE.NS' },
+  { name: 'PPLPHARMA', symbol: 'PPLPHARMA.NS' },
+  { name: 'NTPC', symbol: 'NTPC.NS' },
+  { name: 'NYKAA', symbol: 'NYKAA.NS' },
+  { name: 'OIL', symbol: 'OIL.NS' },
+  { name: 'WIPRO', symbol: 'WIPRO.NS' },
+  { name: 'BALKRISIND', symbol: 'BALKRISIND.NS' },
+  { name: 'EICHERMOT', symbol: 'EICHERMOT.NS' },
+  { name: 'JSWENERGY', symbol: 'JSWENERGY.NS' },
+  { name: 'SUPREMEIND', symbol: 'SUPREMEIND.NS' },
+  { name: 'DIXON', symbol: 'DIXON.NS' },
+  { name: 'TITAN', symbol: 'TITAN.NS' },
+  { name: 'EXIDEIND', symbol: 'EXIDEIND.NS' },
+  { name: 'GODREJPROP', symbol: 'GODREJPROP.NS' },
+  { name: 'APLAPOLLO', symbol: 'APLAPOLLO.NS' },
+  { name: 'HINDPETRO', symbol: 'HINDPETRO.NS' },
+  { name: 'BANKINDIA', symbol: 'BANKINDIA.NS' },
+  { name: 'MCX', symbol: 'MCX.NS' },
+  { name: 'ATGL', symbol: 'ATGL.NS' },
+  { name: 'INDUSINDBK', symbol: 'INDUSINDBK.NS' },
+  { name: 'BRITANNIA', symbol: 'BRITANNIA.NS' },
+  { name: 'TATATECH', symbol: 'TATATECH.NS' },
+  { name: 'LT', symbol: 'LT.NS' },
+  { name: 'CONCOR', symbol: 'CONCOR.NS' },
+  { name: 'DIVISLAB', symbol: 'DIVISLAB.NS' },
+  { name: 'ADANIGREEN', symbol: 'ADANIGREEN.NS' },
+  { name: 'BLUESTARCO', symbol: 'BLUESTARCO.NS' },
+  { name: 'OBEROIRLTY', symbol: 'OBEROIRLTY.NS' },
+  { name: 'GAIL', symbol: 'GAIL.NS' },
+  { name: 'HCLTECH', symbol: 'HCLTECH.NS' },
+  { name: 'ANGELONE', symbol: 'ANGELONE.NS' },
+  { name: 'MARICO', symbol: 'MARICO.NS' },
+  { name: 'ACC', symbol: 'ACC.NS' },
+  { name: 'HUDCO', symbol: 'HUDCO.NS' },
+  { name: 'VEDL', symbol: 'VEDL.NS' },
+  { name: 'BEL', symbol: 'BEL.NS' },
+  { name: 'NIFTY', symbol: 'NIFTY.NS' },
+  { name: 'CUMMINSIND', symbol: 'CUMMINSIND.NS' },
+  { name: 'HAL', symbol: 'HAL.NS' },
+  { name: 'SIEMENS', symbol: 'SIEMENS.NS' },
+  { name: 'SHREECEM', symbol: 'SHREECEM.NS' },
+  { name: 'CHAMBLFERT', symbol: 'CHAMBLFERT.NS' },
+  { name: 'COLPAL', symbol: 'COLPAL.NS' },
+  { name: 'INDIANB', symbol: 'INDIANB.NS' },
+  { name: 'GRANULES', symbol: 'GRANULES.NS' },
+  { name: 'GMRAIRPORT', symbol: 'GMRAIRPORT.NS' },
+  { name: 'RELIANCE', symbol: 'RELIANCE.NS' },
+  { name: 'MAZDOCK', symbol: 'MAZDOCK.NS' },
+  { name: 'IRB', symbol: 'IRB.NS' },
+  { name: 'ICICIBANK', symbol: 'ICICIBANK.NS' },
+  { name: 'CHOLAFIN', symbol: 'CHOLAFIN.NS' },
+  { name: 'ABB', symbol: 'ABB.NS' },
+  { name: 'ALKEM', symbol: 'ALKEM.NS' },
+  { name: 'CANBK', symbol: 'CANBK.NS' },
+  { name: 'SBIN', symbol: 'SBIN.NS' },
+  { name: 'BDL', symbol: 'BDL.NS' },
+  { name: 'TATAELXSI', symbol: 'TATAELXSI.NS' },
+  { name: 'MFSL', symbol: 'MFSL.NS' },
+  { name: 'IRFC', symbol: 'IRFC.NS' },
+  { name: 'NATIONALUM', symbol: 'NATIONALUM.NS' },
+  { name: 'HINDZINC', symbol: 'HINDZINC.NS' },
+  { name: 'GLENMARK', symbol: 'GLENMARK.NS' },
+  { name: 'KOTAKBANK', symbol: 'KOTAKBANK.NS' },
+  { name: 'TVSMOTOR', symbol: 'TVSMOTOR.NS' },
+  { name: 'POONAWALLA', symbol: 'POONAWALLA.NS' },
+  { name: 'POWERGRID', symbol: 'POWERGRID.NS' },
+  { name: 'KEI', symbol: 'KEI.NS' },
+  { name: 'IREDA', symbol: 'IREDA.NS' },
+  { name: 'LAURUSLABS', symbol: 'LAURUSLABS.NS' },
+  { name: 'KPITTECH', symbol: 'KPITTECH.NS' },
+  { name: 'UNOMINDA', symbol: 'UNOMINDA.NS' },
+  { name: 'SOLARINDS', symbol: 'SOLARINDS.NS' },
+  { name: 'LODHA', symbol: 'LODHA.NS' },
+  { name: 'TIINDIA', symbol: 'TIINDIA.NS' },
+  { name: 'AUBANK', symbol: 'AUBANK.NS' },
+  { name: 'BANDHANBNK', symbol: 'BANDHANBNK.NS' },
+  { name: 'SHRIRAMFIN', symbol: 'SHRIRAMFIN.NS' },
+  { name: 'PNB', symbol: 'PNB.NS' },
+  { name: 'TATASTEEL', symbol: 'TATASTEEL.NS' },
+  { name: 'ASTRAL', symbol: 'ASTRAL.NS' },
+  { name: 'ZYDUSLIFE', symbol: 'ZYDUSLIFE.NS' },
+  { name: 'ADANIENT', symbol: 'ADANIENT.NS' },
+  { name: 'YESBANK', symbol: 'YESBANK.NS' },
+  { name: 'SAIL', symbol: 'SAIL.NS' },
+  { name: 'INOXWIND', symbol: 'INOXWIND.NS' },
+  { name: 'BSE', symbol: 'BSE.NS' },
+  { name: 'IIFL', symbol: 'IIFL.NS' },
+  { name: 'HFCL', symbol: 'HFCL.NS' },
+  { name: 'GRASIM', symbol: 'GRASIM.NS' },
+  { name: 'PERSISTENT', symbol: 'PERSISTENT.NS' },
 ];
 
 const CHART_BACKGROUND = '#1a1a1a';
@@ -115,6 +338,7 @@ export default function AnalysisPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  const [expiryType, setExpiryType] = useState<'spot' | 'monthly'>('monthly');
   const previousPriceRef = useRef<number | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -123,34 +347,76 @@ export default function AnalysisPage() {
   // Get notification context
   const { addNotification } = useNotifications();
 
+  // Define default symbols to show without search
+  const defaultSymbols = ['^NSEI', '^NSEBANK', 'RELIANCE.NS', 'TATAMOTORS.NS'];
+  
+  // Filter symbols based on search query
+  const filteredSymbols = popularSymbols.filter(item => 
+    // Always show default symbols when search is empty
+    (searchQuery === '' && defaultSymbols.includes(item.symbol)) || 
+    // Show matching symbols when searching
+    (searchQuery !== '' && (
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+    ))
+  );
+
   const fetchLTPData = async () => {
-    // Only fetch LTP data for NIFTY and BANKNIFTY
-    if (symbol !== '^NSEI' && symbol !== '^NSEBANK') {
-      setLtpData(null);
-      return;
-    }
-
-    // Map Yahoo Finance symbols to LTP Calculator symbols
-    const ltpSymbol = symbol === '^NSEI' ? 'NIFTY' : 'BANKNIFTY';
-
     try {
+      // Get the base symbol name for LTP calculation
+      let ltpSymbol = '';
+      
+      // Handle special cases for indices
+      if (symbol === '^NSEI') {
+        ltpSymbol = 'NIFTY';
+      } else if (symbol === '^NSEBANK') {
+        ltpSymbol = 'BANKNIFTY';
+      } else if (symbol === 'NIFTY_FIN_SERVICE.NS') {
+        ltpSymbol = 'FINNIFTY';
+      } else if (symbol === 'MIDCPNIFTY.NS') {
+        ltpSymbol = 'MIDCPNIFTY';
+      } else if (symbol === 'NIFTYNXT50.NS') {
+        ltpSymbol = 'NIFTYNXT50';
+      } else {
+        // For regular stocks, remove the .NS suffix if present
+        ltpSymbol = symbol.replace('.NS', '');
+      }
+      
+      // API now handles expiry date selection automatically
       console.log(`Fetching LTP data for ${ltpSymbol}`);
       const response = await fetch(`/api/ltp-calculator?symbol=${ltpSymbol}`);
       
+      // Handle response errors
       if (!response.ok) {
-        if (response.status !== 429) { // Ignore rate limit errors
-          console.error(`Failed to fetch LTP data: ${response.status}`);
-          const errorData = await response.json().catch(() => ({}));
-          console.error('Error details:', errorData);
+        const status = response.status;
+        
+        // Don't log for rate limiting errors
+        if (status !== 429) {
+          try {
+            // Try to parse error JSON if available
+            const errorData = await response.json();
+            console.error(`Failed to fetch LTP data (${status}):`, errorData);
+          } catch (parseError) {
+            // If JSON parsing fails, get the error text
+            const errorText = await response.text();
+            console.error(`Failed to fetch LTP data (${status}): ${errorText}`);
+          }
         }
+        
+        // Don't throw error, just return to prevent UI disruption
         return;
       }
 
+      // Parse successful response
       const data = await response.json();
       console.log(`LTP data received for ${ltpSymbol}:`, data);
       setLtpData(data);
     } catch (error) {
-      console.error('Error fetching LTP data:', error);
+      // Log the complete error object for better debugging
+      console.error('Error in fetchLTPData:', error);
+      
+      // Don't disrupt UI, continue without LTP data
+      setLtpData(null);
     }
   };
 
@@ -195,7 +461,7 @@ export default function AnalysisPage() {
       setCurrentPrice(price);
 
       // Check for price alerts
-      if ((symbol === '^NSEI' || symbol === '^NSEBANK') && ltpData && price && previousPriceRef.current !== null) {
+      if (ltpData && price && previousPriceRef.current !== null) {
         // Define price levels to check for alerts
         const priceLevels = [
           { price: ltpData.riskyResistance, title: 'Risky Resistance' },
@@ -222,12 +488,16 @@ export default function AnalysisPage() {
           if (crossedAbove || crossedBelow) {
             const direction = crossedAbove ? 'above' : 'below';
             
-            // Get the index name for the notification
-            const indexName = symbol === '^NSEI' ? 'NIFTY' : 'BANKNIFTY';
+            // Get the symbol name for the notification
+            let displaySymbol = symbol;
+            if (symbol === '^NSEI') displaySymbol = 'NIFTY';
+            else if (symbol === '^NSEBANK') displaySymbol = 'BANKNIFTY';
+            else if (symbol === 'NIFTY_FIN_SERVICE.NS') displaySymbol = 'FINNIFTY';
+            else displaySymbol = symbol.replace('.NS', '');
             
             // Add to global notifications
             addNotification({
-              title: `${indexName} Price Alert: ${level.title}`,
+              title: `${displaySymbol} Price Alert: ${level.title}`,
               message: `Price (${formatPrice(price)}) moved ${direction} ${level.title} level (${formatPrice(levelPrice)})`,
               type: direction === 'above' ? 'success' : 'warning',
             });
@@ -238,11 +508,12 @@ export default function AnalysisPage() {
       // Update previous price reference
       previousPriceRef.current = price;
 
-      // Update LTP data for NIFTY or BANKNIFTY
-      if ((symbol === '^NSEI' || symbol === '^NSEBANK') && (!ltpData || Date.now() - new Date(ltpData.fetchTime).getTime() > 10000)) {
+      // Update LTP data periodically
+      if (!ltpData || Date.now() - new Date(ltpData.fetchTime || 0).getTime() > 10000) {
         await fetchLTPData();
       }
 
+      // Get current candle boundaries
       const { currentStartTime, previousStartTime } = getCandleBoundaries();
 
       setChartData(prevData => {
@@ -326,12 +597,8 @@ export default function AnalysisPage() {
         
         setChartData(sortedData);
         
-        // Initial LTP fetch for NIFTY and BANKNIFTY
-        if (symbol === '^NSEI' || symbol === '^NSEBANK') {
-          await fetchLTPData();
-        } else {
-          setLtpData(null);
-        }
+        // Fetch LTP data for all symbols
+        await fetchLTPData();
       } catch (error) {
         console.error('Error fetching market data:', error);
         setChartData([]);
@@ -521,8 +788,8 @@ export default function AnalysisPage() {
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current) return;
 
-    // Update price lines for NIFTY and BANKNIFTY
-    if ((symbol === '^NSEI' || symbol === '^NSEBANK') && ltpData) {
+    // Update price lines for all symbols when LTP data is available
+    if (ltpData) {
       // Remove existing price lines
       if (candlestickSeriesRef.current._priceLines) {
         candlestickSeriesRef.current._priceLines.forEach((line: PriceLine) => {
@@ -610,33 +877,33 @@ export default function AnalysisPage() {
 
       // Calculate the min and max prices
       if (allPrices.length > 0) {
-      const minPrice = Math.min(...allPrices);
-      const maxPrice = Math.max(...allPrices);
+        const minPrice = Math.min(...allPrices);
+        const maxPrice = Math.max(...allPrices);
       
-      // Calculate price range and padding
-      const priceRange = maxPrice - minPrice;
-      const padding = priceRange * 0.1; // 10% padding
+        // Calculate price range and padding
+        const priceRange = maxPrice - minPrice;
+        const padding = priceRange * 0.1; // 10% padding
 
-      // Set the visible range with padding
-      chartRef.current.applyOptions({
-        rightPriceScale: {
-          autoScale: false,
-          scaleMargins: {
-            top: 0.2,    // Increased top margin
-            bottom: 0.2, // Increased bottom margin
+        // Set the visible range with padding
+        chartRef.current.applyOptions({
+          rightPriceScale: {
+            autoScale: false,
+            scaleMargins: {
+              top: 0.2,    // Increased top margin
+              bottom: 0.2, // Increased bottom margin
+            },
           },
-        },
-      });
+        });
 
-      // Apply the price range to the series
-      candlestickSeriesRef.current.applyOptions({
-        autoscaleInfoProvider: () => ({
-          priceRange: {
-            minValue: minPrice - padding,
-            maxValue: maxPrice + padding,
-          },
-        }),
-      });
+        // Apply the price range to the series
+        candlestickSeriesRef.current.applyOptions({
+          autoscaleInfoProvider: () => ({
+            priceRange: {
+              minValue: minPrice - padding,
+              maxValue: maxPrice + padding,
+            },
+          }),
+        });
       }
 
       // Create price lines
@@ -663,32 +930,32 @@ export default function AnalysisPage() {
         }
       });
     } else {
-      // For other symbols, just ensure proper chart scaling
+      // For symbols without LTP data, just ensure proper chart scaling
       const prices = chartData.flatMap(candle => [Number(candle.high), Number(candle.low)]);
       if (prices.length > 0) {
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const padding = (maxPrice - minPrice) * 0.1;
+        const minPrice = Math.min(...prices);
+        const maxPrice = Math.max(...prices);
+        const padding = (maxPrice - minPrice) * 0.1;
 
-      chartRef.current.applyOptions({
-        rightPriceScale: {
-          autoScale: false,
-          scaleMargins: {
-            top: 0.2,
-            bottom: 0.2,
+        chartRef.current.applyOptions({
+          rightPriceScale: {
+            autoScale: false,
+            scaleMargins: {
+              top: 0.2,
+              bottom: 0.2,
+            },
           },
-        },
-      });
+        });
 
-      candlestickSeriesRef.current.applyOptions({
-        autoscaleInfoProvider: () => ({
-          priceRange: {
-            minValue: minPrice - padding,
-            maxValue: maxPrice + padding,
-          },
-        }),
-      });
-    }
+        candlestickSeriesRef.current.applyOptions({
+          autoscaleInfoProvider: () => ({
+            priceRange: {
+              minValue: minPrice - padding,
+              maxValue: maxPrice + padding,
+            },
+          }),
+        });
+      }
     }
   }, [chartData, ltpData, symbol]);
 
@@ -708,11 +975,6 @@ export default function AnalysisPage() {
     setCurrentPrice(null);
     previousPriceRef.current = null;
   }, [symbol]);
-
-  const filteredSymbols = popularSymbols.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   // Add window resize handler
   useEffect(() => {
@@ -749,15 +1011,18 @@ export default function AnalysisPage() {
         </div>
 
         <div className="flex items-center justify-between text-sm text-gray-400 mb-3 px-1">
-          <span className="font-medium">Popular Symbols</span>
+          <span className="font-medium">
+            {searchQuery === '' ? 'Popular Symbols' : 'Search Results'}
+          </span>
           <div className="flex items-center space-x-2">
             <Clock className="h-4 w-4" />
             <span>Live</span>
           </div>
         </div>
         
-        <div className="space-y-2">
-          {filteredSymbols.map((item) => (
+        <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-12rem)]">
+          {filteredSymbols.length > 0 ? (
+            filteredSymbols.map((item) => (
             <button
               key={item.symbol}
               onClick={() => handleSymbolClick(item.symbol)}
@@ -777,7 +1042,12 @@ export default function AnalysisPage() {
                 )}
               </div>
             </button>
-          ))}
+            ))
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              No symbols found. Try a different search.
+            </div>
+          )}
         </div>
       </div>
 
