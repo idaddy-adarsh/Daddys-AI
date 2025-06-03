@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createChart, ColorType, Time, LineStyle, DeepPartial, ChartOptions, LineWidth } from 'lightweight-charts';
 import { Search, TrendingUp, TrendingDown, Clock, Calendar, Volume2, CandlestickChart } from 'lucide-react';
+import { useNotifications } from '../layout';
 
 interface ChartData {
   time: string;  // ISO string format for intraday data
@@ -114,29 +115,39 @@ export default function AnalysisPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
-  const [selectedInterval, setSelectedInterval] = useState<TimeInterval>(timeIntervals[1]); // Default to 5M
+  const previousPriceRef = useRef<number | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
   const symbol = searchParams.get('symbol') || '^NSEI';
+  
+  // Get notification context
+  const { addNotification } = useNotifications();
 
   const fetchLTPData = async () => {
-    // Only fetch LTP data for NIFTY
-    if (symbol !== '^NSEI') {
+    // Only fetch LTP data for NIFTY and BANKNIFTY
+    if (symbol !== '^NSEI' && symbol !== '^NSEBANK') {
       setLtpData(null);
       return;
     }
 
+    // Map Yahoo Finance symbols to LTP Calculator symbols
+    const ltpSymbol = symbol === '^NSEI' ? 'NIFTY' : 'BANKNIFTY';
+
     try {
-      const response = await fetch(`/api/ltp-calculator?symbol=NIFTY`);
+      console.log(`Fetching LTP data for ${ltpSymbol}`);
+      const response = await fetch(`/api/ltp-calculator?symbol=${ltpSymbol}`);
       
       if (!response.ok) {
         if (response.status !== 429) { // Ignore rate limit errors
           console.error(`Failed to fetch LTP data: ${response.status}`);
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Error details:', errorData);
         }
         return;
       }
 
       const data = await response.json();
+      console.log(`LTP data received for ${ltpSymbol}:`, data);
       setLtpData(data);
     } catch (error) {
       console.error('Error fetching LTP data:', error);
@@ -183,8 +194,52 @@ export default function AnalysisPage() {
       
       setCurrentPrice(price);
 
-      // Update LTP data only for NIFTY
-      if (symbol === '^NSEI' && (!ltpData || Date.now() - new Date(ltpData.fetchTime).getTime() > 10000)) {
+      // Check for price alerts
+      if ((symbol === '^NSEI' || symbol === '^NSEBANK') && ltpData && price && previousPriceRef.current !== null) {
+        // Define price levels to check for alerts
+        const priceLevels = [
+          { price: ltpData.riskyResistance, title: 'Risky Resistance' },
+          { price: ltpData.moderateResistance, title: 'Moderate Resistance' },
+          { price: ltpData.rMaxGain, title: 'Resistance Target' },
+          { price: ltpData.rMaxPain, title: 'Resistance Stop Loss' },
+          { price: ltpData.riskySupport, title: 'Risky Support' },
+          { price: ltpData.moderateSupport, title: 'Moderate Support' },
+          { price: ltpData.sMaxGain, title: 'Support Target' },
+          { price: ltpData.sMaxPain, title: 'Support Stop Loss' }
+        ];
+
+        // Check each level to see if price crossed it
+        priceLevels.forEach(level => {
+          if (!level.price || isNaN(Number(level.price))) return;
+          
+          const levelPrice = Number(level.price);
+          const previousPrice = previousPriceRef.current!;
+          
+          // Check if price crossed the level (from below to above or from above to below)
+          const crossedAbove = previousPrice < levelPrice && price >= levelPrice;
+          const crossedBelow = previousPrice > levelPrice && price <= levelPrice;
+          
+          if (crossedAbove || crossedBelow) {
+            const direction = crossedAbove ? 'above' : 'below';
+            
+            // Get the index name for the notification
+            const indexName = symbol === '^NSEI' ? 'NIFTY' : 'BANKNIFTY';
+            
+            // Add to global notifications
+            addNotification({
+              title: `${indexName} Price Alert: ${level.title}`,
+              message: `Price (${formatPrice(price)}) moved ${direction} ${level.title} level (${formatPrice(levelPrice)})`,
+              type: direction === 'above' ? 'success' : 'warning',
+            });
+          }
+        });
+      }
+      
+      // Update previous price reference
+      previousPriceRef.current = price;
+
+      // Update LTP data for NIFTY or BANKNIFTY
+      if ((symbol === '^NSEI' || symbol === '^NSEBANK') && (!ltpData || Date.now() - new Date(ltpData.fetchTime).getTime() > 10000)) {
         await fetchLTPData();
       }
 
@@ -253,7 +308,7 @@ export default function AnalysisPage() {
       setIsLoading(true);
       try {
         // Fetch historical 5-minute candles
-        const marketResponse = await fetch(`/api/yahoo-finance/intraday?symbol=${symbol}&interval=${selectedInterval.value}&range=${selectedInterval.range}`);
+        const marketResponse = await fetch(`/api/yahoo-finance/intraday?symbol=${symbol}&interval=5m&range=1d`);
         if (!marketResponse.ok) throw new Error('Failed to fetch data');
         const data = await marketResponse.json();
         
@@ -271,8 +326,8 @@ export default function AnalysisPage() {
         
         setChartData(sortedData);
         
-        // Initial LTP fetch only for NIFTY
-        if (symbol === '^NSEI') {
+        // Initial LTP fetch for NIFTY and BANKNIFTY
+        if (symbol === '^NSEI' || symbol === '^NSEBANK') {
           await fetchLTPData();
         } else {
           setLtpData(null);
@@ -293,13 +348,15 @@ export default function AnalysisPage() {
     return () => {
       clearInterval(updateInterval);
     };
-  }, [symbol, selectedInterval]);
+  }, [symbol]);
 
-  useEffect(() => {
-    if (!chartContainerRef.current || chartData.length === 0) return;
+  // Use layout effect for chart initialization to ensure DOM measurements are accurate
+  useLayoutEffect(() => {
+    if (!chartContainerRef.current) return;
 
-    // Only create chart if it doesn't exist
+    // Create chart if it doesn't exist
     if (!chartRef.current) {
+      console.log('Creating new chart instance (layout effect)');
       const chartOptions: DeepPartial<ChartOptions> = {
         layout: {
           background: { type: ColorType.Solid, color: CHART_BACKGROUND },
@@ -407,7 +464,46 @@ export default function AnalysisPage() {
         priceLineColor: BORDER_COLOR,
         priceLineStyle: LineStyle.Solid,
       });
+
+      // If we already have data, set it immediately
+      if (chartData.length > 0) {
+        const formattedData = chartData.map(item => ({
+          ...item,
+          time: Number(item.time) as Time
+        }));
+        candlestickSeriesRef.current.setData(formattedData);
+        chartRef.current.timeScale().fitContent();
+      }
     }
+
+    // Handle resize immediately
+    if (chartRef.current) {
+      chartRef.current.applyOptions({
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight,
+      });
+      chartRef.current.timeScale().fitContent();
+    }
+  }, [chartContainerRef.current, chartData]);
+
+  // Remove the regular useEffect for chart creation since we're using useLayoutEffect instead
+  useEffect(() => {
+    // Chart initialization - only once when component mounts
+    return () => {
+      // Clean up on component unmount
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        candlestickSeriesRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update chart data when chartData changes
+  useEffect(() => {
+    if (!chartRef.current || !candlestickSeriesRef.current || chartData.length === 0) return;
+    
+    console.log(`Updating chart with ${chartData.length} data points`);
 
     // Update data
     const formattedData = chartData.map(item => ({
@@ -417,8 +513,16 @@ export default function AnalysisPage() {
 
     candlestickSeriesRef.current.setData(formattedData);
 
-    // Update price lines only for NIFTY
-    if (symbol === '^NSEI' && ltpData) {
+    // Fit content to show all data
+    chartRef.current.timeScale().fitContent();
+  }, [chartData]);
+
+  // Update price lines when LTP data changes
+  useEffect(() => {
+    if (!chartRef.current || !candlestickSeriesRef.current) return;
+
+    // Update price lines for NIFTY and BANKNIFTY
+    if ((symbol === '^NSEI' || symbol === '^NSEBANK') && ltpData) {
       // Remove existing price lines
       if (candlestickSeriesRef.current._priceLines) {
         candlestickSeriesRef.current._priceLines.forEach((line: PriceLine) => {
@@ -505,6 +609,7 @@ export default function AnalysisPage() {
       ].filter(price => !isNaN(price)) as number[];
 
       // Calculate the min and max prices
+      if (allPrices.length > 0) {
       const minPrice = Math.min(...allPrices);
       const maxPrice = Math.max(...allPrices);
       
@@ -532,6 +637,7 @@ export default function AnalysisPage() {
           },
         }),
       });
+      }
 
       // Create price lines
       priceLevels.forEach(level => {
@@ -556,12 +662,10 @@ export default function AnalysisPage() {
           }
         }
       });
-
-      // Ensure the chart fits all data
-      chartRef.current.timeScale().fitContent();
     } else {
       // For other symbols, just ensure proper chart scaling
       const prices = chartData.flatMap(candle => [Number(candle.high), Number(candle.low)]);
+      if (prices.length > 0) {
       const minPrice = Math.min(...prices);
       const maxPrice = Math.max(...prices);
       const padding = (maxPrice - minPrice) * 0.1;
@@ -585,14 +689,40 @@ export default function AnalysisPage() {
         }),
       });
     }
+    }
+  }, [chartData, ltpData, symbol]);
 
-    // Handle resize
+  const handleSymbolClick = (newSymbol: string) => {
+    // Set loading state before navigation
+    setIsLoading(true);
+    
+    // Use window.location for full page refresh instead of router.push
+    window.location.href = `/dashboard/analysis?symbol=${newSymbol}`;
+  };
+
+  // Handle smooth symbol transitions
+  useEffect(() => {
+    // Reset chart data when symbol changes
+    setChartData([]);
+    setLtpData(null);
+    setCurrentPrice(null);
+    previousPriceRef.current = null;
+  }, [symbol]);
+
+  const filteredSymbols = popularSymbols.filter(item => 
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Add window resize handler
+  useEffect(() => {
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
           height: chartContainerRef.current.clientHeight,
         });
+        chartRef.current.timeScale().fitContent();
       }
     };
 
@@ -600,22 +730,8 @@ export default function AnalysisPage() {
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-        candlestickSeriesRef.current = null;
-      }
     };
-  }, [chartData, ltpData, symbol]);
-
-  const handleSymbolClick = (newSymbol: string) => {
-    router.push(`/dashboard/analysis?symbol=${newSymbol}`);
-  };
-
-  const filteredSymbols = popularSymbols.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  }, []);
 
   return (
     <div className="flex h-[calc(100vh-3rem)]">
@@ -666,17 +782,17 @@ export default function AnalysisPage() {
       </div>
 
       {/* Chart Area */}
-      <div className="flex-1 bg-[#1a1a1a] relative">
+      <div className="flex-1 bg-[#1a1a1a] relative flex flex-col">
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="animate-spin rounded-full h-12 w-12 border-2 border-orange-500/20 border-t-orange-500"></div>
           </div>
         ) : (
           <>
-            {/* Info Card */}
-            <div className="absolute top-4 left-4 z-10 bg-gray-800/90 backdrop-blur rounded-lg border border-gray-700 shadow-lg p-4 space-y-2">
-              {/* Symbol and Price */}
-              <div className="flex items-center justify-between">
+            {/* Top Controls */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-800">
+              {/* Symbol Info */}
+              <div className="flex items-center space-x-4">
                 <div>
                   <h3 className="text-lg font-semibold text-white">
                     {popularSymbols.find(s => s.symbol === symbol)?.name || symbol}
@@ -688,20 +804,17 @@ export default function AnalysisPage() {
                     {formatPrice(currentPrice)}
                   </div>
                 )}
-              </div>
-
-              {/* Market Direction */}
               {ltpData?.direction && (
                 <div className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-1.5 ${
-                  ltpData.direction === 'BULLISH' 
+                    ltpData.direction.includes('BULLISH') 
                     ? 'bg-green-500/10 text-green-400'
-                    : ltpData.direction === 'BEARISH'
+                      : ltpData.direction.includes('BEARISH')
                     ? 'bg-red-500/10 text-red-400'
                     : 'bg-yellow-500/10 text-yellow-400'
                 }`}>
-                  {ltpData.direction === 'BULLISH' ? (
+                    {ltpData.direction.includes('BULLISH') ? (
                     <TrendingUp className="h-4 w-4" />
-                  ) : ltpData.direction === 'BEARISH' ? (
+                    ) : ltpData.direction.includes('BEARISH') ? (
                     <TrendingDown className="h-4 w-4" />
                   ) : (
                     <Volume2 className="h-4 w-4" />
@@ -710,8 +823,12 @@ export default function AnalysisPage() {
                 </div>
               )}
             </div>
+            </div>
 
-            <div ref={chartContainerRef} className="w-full h-full" />
+            {/* Chart Container */}
+            <div className="flex-1 relative w-full h-full overflow-hidden">
+              <div ref={chartContainerRef} className="w-full h-full absolute inset-0"></div>
+            </div>
           </>
         )}
       </div>

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Logo } from '../components/Logo';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
 import { Bell, ChevronLeft, ChevronRight, Menu, X } from 'lucide-react';
 import { ComingSoonModal } from '../components/ComingSoonModal';
 
@@ -18,13 +18,45 @@ const navItems = [
   { name: 'Settings', path: null, icon: '⚙️', description: 'Customize your experience', comingSoon: true },
 ];
 
+// Create notification context
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: number;
+  read: boolean;
+  type: 'info' | 'success' | 'warning' | 'error';
+}
+
+interface NotificationContextType {
+  notifications: Notification[];
+  addNotification: (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => void;
+  markAsRead: (id: string) => void;
+  clearNotifications: () => void;
+  unreadCount: number;
+}
+
+export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+export const useNotifications = () => {
+  const context = useContext(NotificationContext);
+  if (!context) {
+    throw new Error('useNotifications must be used within a NotificationProvider');
+  }
+  return context;
+};
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [notifications, setNotifications] = useState(3);
+  const [notificationList, setNotificationList] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState('');
+
+  // Calculate unread notifications count
+  const unreadCount = notificationList.filter(n => !n.read).length;
 
   useEffect(() => {
     setMounted(true);
@@ -42,10 +74,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
+  // Notification functions
+  const addNotification = (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
+    const newNotification: Notification = {
+      ...notification,
+      id: Date.now().toString(),
+      timestamp: Date.now(),
+      read: false,
+    };
+    
+    setNotificationList(prev => [newNotification, ...prev]);
+    
+    // Show browser notification if supported
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(notification.title, {
+          body: notification.message,
+        });
+      } catch (error) {
+        console.error('Error showing notification:', error);
+      }
+    }
+  };
+
+  const markAsRead = (id: string) => {
+    setNotificationList(prev => 
+      prev.map(notification => 
+        notification.id === id ? { ...notification, read: true } : notification
+      )
+    );
+  };
+
+  const clearNotifications = () => {
+    setNotificationList([]);
+  };
+
+  const toggleNotificationsPanel = () => {
+    setShowNotifications(!showNotifications);
+  };
+
+  // Notification context value
+  const notificationContextValue = {
+    notifications: notificationList,
+    addNotification,
+    markAsRead,
+    clearNotifications,
+    unreadCount
+  };
+
   if (!mounted) return null;
 
   return (
-    <>
+    <NotificationContext.Provider value={notificationContextValue}>
       <div className="flex min-h-screen bg-gradient-to-br from-black via-gray-950 to-orange-950/20 overflow-hidden">
         {/* Toggle button for mobile */}
         <motion.button
@@ -221,18 +301,88 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
-                {notifications > 0 && (
+                {unreadCount > 0 && (
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-r from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-xs font-bold text-white border border-black/40 shadow-md shadow-orange-900/20"
                   >
-                    {notifications}
+                    {unreadCount}
                   </motion.div>
                 )}
-                <button className="bg-black/40 hover:bg-black/60 text-orange-500 hover:text-orange-400 transition-all duration-200 p-2 rounded-lg border border-orange-500/30 hover:border-orange-500/50 shadow-md shadow-orange-900/5">
+                <button 
+                  onClick={toggleNotificationsPanel}
+                  className="bg-black/40 hover:bg-black/60 text-orange-500 hover:text-orange-400 transition-all duration-200 p-2 rounded-lg border border-orange-500/30 hover:border-orange-500/50 shadow-md shadow-orange-900/5"
+                >
                   <Bell className="h-5 w-5" />
                 </button>
+
+                {/* Notifications Panel */}
+                <AnimatePresence>
+                  {showNotifications && (
+                    <>
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowNotifications(false)}
+                      />
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute right-0 mt-2 w-80 bg-gray-900 border border-orange-500/20 rounded-lg shadow-lg shadow-black/30 z-50 overflow-hidden"
+                      >
+                        <div className="p-3 border-b border-gray-800 flex justify-between items-center">
+                          <h3 className="font-medium text-white">Notifications</h3>
+                          {notificationList.length > 0 && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); clearNotifications(); }}
+                              className="text-xs text-gray-400 hover:text-white"
+                            >
+                              Clear All
+                            </button>
+                          )}
+                        </div>
+                        <div className="max-h-80 overflow-y-auto">
+                          {notificationList.length === 0 ? (
+                            <div className="p-4 text-center text-gray-500 text-sm">
+                              No notifications yet
+                            </div>
+                          ) : (
+                            notificationList.map(notification => (
+                              <div 
+                                key={notification.id} 
+                                className={`p-3 border-b border-gray-800 hover:bg-gray-800/50 transition-colors cursor-pointer ${notification.read ? 'opacity-70' : ''}`}
+                                onClick={() => markAsRead(notification.id)}
+                              >
+                                <div className="flex items-start">
+                                  <div className={`w-2 h-2 rounded-full mt-1.5 mr-2 flex-shrink-0 ${
+                                    notification.type === 'success' ? 'bg-green-500' :
+                                    notification.type === 'warning' ? 'bg-yellow-500' :
+                                    notification.type === 'error' ? 'bg-red-500' :
+                                    'bg-blue-500'
+                                  }`} />
+                                  <div className="flex-1">
+                                    <div className="font-medium text-white text-sm">{notification.title}</div>
+                                    <div className="text-xs text-gray-400 mt-0.5">{notification.message}</div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      {new Date(notification.timestamp).toLocaleTimeString()}
+                                    </div>
+                                  </div>
+                                  {!notification.read && (
+                                    <div className="w-2 h-2 bg-orange-500 rounded-full flex-shrink-0" />
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </motion.div>
               <motion.div
                 whileHover={{ scale: 1.05 }}
@@ -267,6 +417,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           feature={selectedFeature}
         />
       </div>
-    </>
+    </NotificationContext.Provider>
   );
 }

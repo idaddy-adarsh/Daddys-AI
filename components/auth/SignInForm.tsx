@@ -4,12 +4,35 @@ import * as Clerk from '@clerk/elements/common';
 import * as SignIn from '@clerk/elements/sign-in';
 import { clerkAppearance } from './ClerkAppearance';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 interface SignInFormProps {
   redirectUrl: string;
 }
 
 export default function SignInForm({ redirectUrl }: SignInFormProps) {
+  const pathname = usePathname();
+  const isSsoCallback = pathname === '/sign-in/sso-callback';
+
+  if (isSsoCallback) {
+    return (
+      <div className="w-full flex flex-col items-center justify-center py-8">
+        <div className="bg-[#2a2a2a] border-2 border-gray-700 rounded-xl p-8 max-w-md w-full">
+          <h2 className="text-2xl font-bold text-white mb-4">Account Not Found</h2>
+          <p className="text-gray-300 mb-6">
+            It looks like you don't have an account yet. Please sign up first to continue.
+          </p>
+          <Link 
+            href="/sign-up" 
+            className="bg-gradient-to-r from-[#f97316] to-[#fb923c] hover:from-[#ea580c] hover:to-[#f97316] text-white font-semibold py-3.5 px-5 rounded-xl transition-all duration-300 w-full flex items-center justify-center space-x-2 relative shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]"
+          >
+            Go to Sign Up
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       <SignIn.Root>

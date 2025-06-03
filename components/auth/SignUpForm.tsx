@@ -80,6 +80,20 @@ export default function SignUpForm({ redirectUrl }: SignUpFormProps) {
           </div>
         </SignUp.Step>
         
+        <SignUp.Step name="continue">
+          <h2 className="text-2xl font-bold text-white mb-6">Complete your profile</h2>
+          
+          <Clerk.Field name="username" className="mb-4">
+            <Clerk.Label className="text-gray-300 font-medium block mb-2">Username</Clerk.Label>
+            <Clerk.Input className="bg-[#2a2a2a] border-2 border-gray-700 text-white rounded-xl px-4 py-3.5 w-full focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition-all duration-300 placeholder-gray-500 shadow-inner hover:border-gray-600" />
+            <Clerk.FieldError className="text-red-400 text-sm font-medium mt-1" />
+          </Clerk.Field>
+          
+          <SignUp.Action submit className="bg-gradient-to-r from-[#f97316] to-[#fb923c] hover:from-[#ea580c] hover:to-[#f97316] text-white font-semibold py-3.5 px-5 rounded-xl transition-all duration-300 w-full flex items-center justify-center space-x-2 relative shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] mt-4">
+            Continue
+          </SignUp.Action>
+        </SignUp.Step>
+        
         <SignUp.Step name="verifications">
           <SignUp.Strategy name="email_code">
             <Clerk.Field name="code" className="mb-4">
