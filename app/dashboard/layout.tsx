@@ -13,7 +13,7 @@ import { ComingSoonModal } from '../components/ComingSoonModal';
 const navItems = [
   { name: 'Overview', path: '/dashboard', icon: '📊', description: 'Your financial dashboard' },
   { name: 'Portfolio', path: '/dashboard/portfolio', icon: '💼', description: 'View your investments' },
-  { name: 'Market Analysis', path: '/dashboard/analysis', icon: '📈', description: 'Market trends and analysis' },
+  { name: 'Market Analysis', path: '/dashboard/analysis', icon: '📈', description: 'Analysis with LTP Calculator' },
   { name: 'AI Predictions', path: null, icon: '🧠', description: 'AI-powered forecasts', comingSoon: true },
   { name: 'Settings', path: null, icon: '⚙️', description: 'Customize your experience', comingSoon: true },
 ];

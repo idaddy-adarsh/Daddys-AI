@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { OptionChainResponse } from '@/app/types/optionChain';
 
-// Cache for simulated data
+// Fallback simulation functions in case the API call fails
 let lastSpotPrice: number | null = null;
 let lastUpdateTime: number = Date.now();
 let volatility = 0.15; // 15% annualized volatility
@@ -148,6 +148,88 @@ function generateMockData(instrumentKey: string, expiryDate: string): OptionChai
   };
 }
 
+// Function to transform Upstox data to our format
+function transformUpstoxData(upstoxData: any): OptionChainResponse {
+  try {
+    const { strategyChainData, assetKey, expiry } = upstoxData.data;
+    const { strikeMap } = strategyChainData;
+    
+    // Extract spot price from the first entry (assuming it's consistent)
+    let spotPrice = 22000; // Default fallback
+    const firstStrike = Object.values(strikeMap)[0] as any;
+    if (firstStrike?.callOptionData?.marketData) {
+      // Try to infer spot price from option prices and strikes
+      const strikes = Object.keys(strikeMap).map(Number);
+      spotPrice = strikes.reduce((acc, strike) => acc + strike, 0) / strikes.length;
+    }
+    
+    const data = Object.entries(strikeMap).map(([strikePrice, strikeData]: [string, any]) => {
+      const strike = parseFloat(strikePrice);
+      const { callOptionData, putOptionData, pcr } = strikeData;
+      
+      return {
+        expiry,
+        pcr: pcr || 1.0,
+        strike_price: strike,
+        underlying_key: assetKey,
+        underlying_spot_price: spotPrice,
+        call_options: {
+          instrument_key: callOptionData.instrumentKey,
+          market_data: {
+            ltp: callOptionData.marketData.ltp,
+            volume: callOptionData.marketData.volume,
+            oi: callOptionData.marketData.oi,
+            close_price: callOptionData.marketData.cp,
+            bid_price: callOptionData.marketData.bidPrice,
+            bid_qty: callOptionData.marketData.bidQty,
+            ask_price: callOptionData.marketData.askPrice,
+            ask_qty: callOptionData.marketData.askQty,
+            prev_oi: callOptionData.marketData.prevOi
+          },
+          option_greeks: {
+            vega: callOptionData.analytics.vega,
+            theta: callOptionData.analytics.theta,
+            gamma: callOptionData.analytics.gamma,
+            delta: callOptionData.analytics.delta,
+            iv: callOptionData.analytics.iv,
+            pop: callOptionData.analytics.pop
+          }
+        },
+        put_options: {
+          instrument_key: putOptionData.instrumentKey,
+          market_data: {
+            ltp: putOptionData.marketData.ltp,
+            volume: putOptionData.marketData.volume,
+            oi: putOptionData.marketData.oi,
+            close_price: putOptionData.marketData.cp,
+            bid_price: putOptionData.marketData.bidPrice,
+            bid_qty: putOptionData.marketData.bidQty,
+            ask_price: putOptionData.marketData.askPrice,
+            ask_qty: putOptionData.marketData.askQty,
+            prev_oi: putOptionData.marketData.prevOi
+          },
+          option_greeks: {
+            vega: putOptionData.analytics.vega,
+            theta: putOptionData.analytics.theta,
+            gamma: putOptionData.analytics.gamma,
+            delta: putOptionData.analytics.delta,
+            iv: putOptionData.analytics.iv,
+            pop: putOptionData.analytics.pop
+          }
+        }
+      };
+    });
+    
+    return {
+      status: "success",
+      data
+    };
+  } catch (error) {
+    console.error("Error transforming Upstox data:", error);
+    throw new Error("Failed to transform Upstox data");
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const instrumentKey = searchParams.get('instrument_key');
@@ -160,6 +242,115 @@ export async function GET(request: Request) {
     );
   }
 
-  // For now, always return simulated data
-  return NextResponse.json(generateMockData(instrumentKey, expiryDate));
+  try {
+    // Determine if we're dealing with Nifty
+    const isNifty = instrumentKey.toLowerCase().includes('nifty');
+    
+    if (isNifty) {
+      // Calculate the current NIFTY expiry (last Thursday of the month)
+      const formattedExpiry = calculateNiftyExpiry(expiryDate);
+      
+      // Use the Upstox API for Nifty options with the calculated expiry
+      const upstoxUrl = `https://service.upstox.com/option-analytics-tool/open/v1/strategy-chains?assetKey=NSE_INDEX%7CNifty+50&strategyChainType=PC_CHAIN&expiry=${formattedExpiry}`;
+      
+      try {
+        const response = await fetch(upstoxUrl, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Cache-Control': 'no-cache'
+
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Upstox API responded with status: ${response.status}`);
+        }
+        
+        const upstoxData = await response.json();
+        const transformedData = transformUpstoxData(upstoxData);
+        
+        return NextResponse.json(transformedData);
+      } catch (error) {
+        console.error("Error fetching from Upstox API:", error);
+        // Fallback to simulated data if API call fails
+        console.log("Falling back to simulated data");
+        return NextResponse.json(generateMockData(instrumentKey, expiryDate));
+      }
+    } else {
+      // For non-Nifty options, use simulated data
+      return NextResponse.json(generateMockData(instrumentKey, expiryDate));
+    }
+  } catch (error) {
+    console.error("Error in option chain API:", error);
+    return NextResponse.json(
+      { error: 'Failed to fetch option chain data' },
+      { status: 500 }
+    );
+  }
+}
+
+// Function to calculate the current NIFTY expiry date in DD-MM-YYYY format
+function calculateNiftyExpiry(requestedExpiry: string): string {
+  try {
+    // Parse the requested expiry date
+    const requestDate = new Date(requestedExpiry);
+    
+    // Get the current date
+    const today = new Date();
+    
+    // If the requested date is valid, use it as the basis
+    const baseDate = !isNaN(requestDate.getTime()) ? requestDate : today;
+    
+    // Get the current month and year
+    const currentYear = baseDate.getFullYear();
+    const currentMonth = baseDate.getMonth();
+    
+    // Find the last Thursday of the current month
+    const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0);
+    let lastThursday = new Date(lastDayOfMonth);
+    
+    // Adjust to get the last Thursday
+    while (lastThursday.getDay() !== 4) { // 4 is Thursday
+      lastThursday.setDate(lastThursday.getDate() - 1);
+    }
+    
+    // Find the nearest weekly expiry (every Thursday)
+    let weeklyExpiry = new Date(baseDate);
+    
+    // If today is after Thursday, move to next week
+    if (baseDate.getDay() > 4) {
+      weeklyExpiry.setDate(baseDate.getDate() + (4 + 7 - baseDate.getDay()) % 7);
+    } 
+    // If today is before Thursday, move to this week's Thursday
+    else if (baseDate.getDay() < 4) {
+      weeklyExpiry.setDate(baseDate.getDate() + (4 - baseDate.getDay()));
+    }
+    // If today is Thursday, use today
+    
+    // Use the weekly expiry, unless it's the last Thursday of the month (monthly expiry)
+    const expiryToUse = 
+      weeklyExpiry.getDate() === lastThursday.getDate() && 
+      weeklyExpiry.getMonth() === lastThursday.getMonth() ? 
+      lastThursday : weeklyExpiry;
+    
+    // Format as DD-MM-YYYY
+    const day = String(expiryToUse.getDate()).padStart(2, '0');
+    const month = String(expiryToUse.getMonth() + 1).padStart(2, '0');
+    const year = expiryToUse.getFullYear();
+    
+    return `${day}-${month}-${year}`;
+  } catch (error) {
+    console.error("Error calculating NIFTY expiry:", error);
+    
+    // Fallback to the current date + 1 week (approximate next expiry)
+    const fallbackDate = new Date();
+    fallbackDate.setDate(fallbackDate.getDate() + 7);
+    
+    const day = String(fallbackDate.getDate()).padStart(2, '0');
+    const month = String(fallbackDate.getMonth() + 1).padStart(2, '0');
+    const year = fallbackDate.getFullYear();
+    
+    return `${day}-${month}-${year}`;
+  }
 } 

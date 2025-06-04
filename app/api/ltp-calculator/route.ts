@@ -283,6 +283,7 @@ export async function GET(request: Request) {
       }
     }
     
+    // Use default lot size or provided one
     const lotSize = searchParams.get('lotSize') || symbolConfig.lotSize;
     
     // Implement rate limiting
@@ -296,7 +297,7 @@ export async function GET(request: Request) {
     lastRequestTime = now;
 
     const url = `https://login.ltpcalculator.com/optionChain/fetch-data?symbol=${mappedSymbol}&expiry=${expiry}&lotSize=${lotSize}`;
-    console.log(`Fetching LTP data for: ${url}`);
+    console.log(`Fetching LTP data for ${symbol} (mapped to ${mappedSymbol}) with expiry ${expiry} from: ${url}`);
 
     // Set up authentication headers
     const headers = new Headers();
@@ -322,41 +323,45 @@ export async function GET(request: Request) {
       
       if (!retryResponse.ok) {
         const errorText = await retryResponse.text();
-        console.error(`LTP API error (${retryResponse.status}): ${errorText}`);
+        console.error(`LTP API error for ${symbol} (${retryResponse.status}): ${errorText}`);
         
         // Return a more informative error response
         return NextResponse.json({
           error: 'Failed to fetch data from LTP Calculator API after retry',
           status: retryResponse.status,
           details: errorText,
-          url: url
+          url: url,
+          symbol: symbol,
+          mappedSymbol: mappedSymbol
         }, { status: 502 }); // Use 502 Bad Gateway for upstream API failures
       }
       
       const data = await retryResponse.json();
-      return formatResponse(data);
+      return formatResponse(data, symbol);
     }
 
     // Handle other error responses
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`LTP API error (${response.status}): ${errorText}`);
+      console.error(`LTP API error for ${symbol} (${response.status}): ${errorText}`);
       
       // Return a more informative error response
       return NextResponse.json({
         error: 'Failed to fetch data from LTP Calculator API',
         status: response.status,
         details: errorText,
-        url: url
+        url: url,
+        symbol: symbol,
+        mappedSymbol: mappedSymbol
       }, { status: 502 }); // Use 502 Bad Gateway for upstream API failures
     }
 
     // Process successful response
     const data = await response.json();
-    return formatResponse(data);
+    return formatResponse(data, symbol);
   } catch (error) {
     // Handle any unexpected errors
-    console.error("Error in LTP Calculator API route:", error);
+    console.error(`Error in LTP Calculator API route for ${symbol}:`, error);
     return NextResponse.json(
       { 
         error: 'Unexpected error in LTP Calculator API route',
@@ -370,20 +375,22 @@ export async function GET(request: Request) {
 }
 
 // Helper function to format the response
-function formatResponse(data: any) {
+function formatResponse(data: any, symbol: string) {
   try {
     // Check if the expected data structure exists
     if (!data || !data.symbolMarketDirection) {
-      console.error('Invalid response structure - missing symbolMarketDirection:', data);
+      console.error(`Invalid response structure for ${symbol} - missing symbolMarketDirection:`, data);
       return NextResponse.json({
-        error: 'Invalid response structure from LTP Calculator API - missing symbolMarketDirection'
+        error: 'Invalid response structure from LTP Calculator API - missing symbolMarketDirection',
+        symbol: symbol
       }, { status: 502 });
     }
 
     if (!data.symbolMarketDirection.reversalModel) {
-      console.error('Invalid response structure - missing reversalModel:', data);
+      console.error(`Invalid response structure for ${symbol} - missing reversalModel:`, data);
       return NextResponse.json({
-        error: 'Invalid response structure from LTP Calculator API - missing reversalModel'
+        error: 'Invalid response structure from LTP Calculator API - missing reversalModel',
+        symbol: symbol
       }, { status: 502 });
     }
     
@@ -404,16 +411,19 @@ function formatResponse(data: any) {
       rMaxPain: model.resistanceSL || null,
       sMaxPain: model.supportSL || null,
       scenario: model.scenario || 'UNKNOWN',
+      symbol: symbol // Include the symbol in the response
     };
     
+    console.log(`Formatted LTP data for ${symbol}:`, result);
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error formatting LTP Calculator response:', error);
+    console.error(`Error formatting LTP Calculator response for ${symbol}:`, error);
     console.error('Raw data received:', data);
     return NextResponse.json({
       error: 'Error formatting LTP Calculator response',
       message: error instanceof Error ? error.message : 'Unknown error',
-      rawData: typeof data === 'object' ? 'Data object received but could not be processed' : 'No valid data received'
+      rawData: typeof data === 'object' ? 'Data object received but could not be processed' : 'No valid data received',
+      symbol: symbol
     }, { status: 500 });
   }
 } 

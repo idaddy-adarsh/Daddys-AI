@@ -131,7 +131,7 @@ export default function PortfolioPage() {
         name: 'NIFTY 50', 
         symbol: '^NSEI',
         type: 'index',
-        lotSize: 75
+        lotSize: 50
       }
     ]
   };
@@ -370,7 +370,7 @@ export default function PortfolioPage() {
       amount: 0,
       value: premium,
       change24h: 0,
-      lotSize: 75  // Always set to 75 for NIFTY options
+      lotSize: 50
     };
     
     // Immediately add the asset to the assets list
@@ -392,7 +392,7 @@ export default function PortfolioPage() {
     
     setSelectedAsset(newAsset);
     setTradeType('buy');
-    setTradeAmount('75'); // Default to exactly 1 lot (75 contracts)
+    setTradeAmount('50'); // Default to 1 lot
     setOrderType('market');
     setProductType('intraday');
     setShowTradeModal(true);
@@ -402,43 +402,38 @@ export default function PortfolioPage() {
   // Add this new implementation instead:
   const updateOptionPricesRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Create a temporary function that will be properly defined later
-  // This avoids the reference error
-  const updateWithRandomPricesTemp = () => {};
+  // Function to update option prices with random movements
+  const updateWithRandomPrices = useCallback(() => {
+    setAssets(currentAssets => {
+      if (!currentAssets || !Array.isArray(currentAssets)) return currentAssets;
+      
+      return currentAssets.map(asset => {
+        if (!asset || typeof asset !== 'object' || asset.type !== 'options') 
+          return asset;
+        
+        // Safe price calculation
+        const currentValue = typeof asset.value === 'number' && !isNaN(asset.value) 
+          ? asset.value 
+          : 0.05;
+        const currentChange = typeof asset.change24h === 'number' && !isNaN(asset.change24h)
+          ? asset.change24h
+          : 0;
+          
+        // Generate price movement
+        const priceChange = (Math.random() - 0.5) * 2;
+        const newValue = Math.max(0.05, currentValue * (1 + priceChange / 100));
+        
+        return {
+          ...asset,
+          value: newValue,
+          change24h: currentChange + priceChange
+        };
+      });
+    });
+  }, []);
 
   // Safe update function that tries to use real data first, then falls back to random
   const safeUpdateOptionPrices = useCallback(() => {
-    // Create a local reference to the function we'll define later
-    // This avoids the reference error
-    const updateRandomPrices = () => {
-      setAssets(currentAssets => {
-        if (!currentAssets || !Array.isArray(currentAssets)) return currentAssets;
-        
-        return currentAssets.map(asset => {
-          if (!asset || typeof asset !== 'object' || asset.type !== 'options') 
-            return asset;
-          
-          // Safe price calculation
-          const currentValue = typeof asset.value === 'number' && !isNaN(asset.value) 
-            ? asset.value 
-            : 0.05;
-          const currentChange = typeof asset.change24h === 'number' && !isNaN(asset.change24h)
-            ? asset.change24h
-            : 0;
-            
-          // Generate price movement
-          const priceChange = (Math.random() - 0.5) * 2;
-          const newValue = Math.max(0.05, currentValue * (1 + priceChange / 100));
-          
-          return {
-            ...asset,
-            value: newValue,
-            change24h: currentChange + priceChange
-          };
-        });
-      });
-    };
-
     try {
       if (!assets || !Array.isArray(assets)) return;
       
@@ -511,25 +506,25 @@ export default function PortfolioPage() {
                 });
               } else {
                 // Fallback to random price updates if API data is invalid
-                updateRandomPrices();
+                updateWithRandomPrices();
               }
             })
             .catch(err => {
               console.error('Error fetching option data:', err);
               // Fall back to random price updates
-              updateRandomPrices();
+              updateWithRandomPrices();
             });
         } else {
           // No expiry dates available, fall back to random updates
-          updateRandomPrices();
+          updateWithRandomPrices();
         }
       }
     } catch (error) {
       console.error('Error in safeUpdateOptionPrices:', error);
       // Fall back to random price updates
-      updateRandomPrices();
+      updateWithRandomPrices();
     }
-  }, [assets]);
+  }, [assets, updateWithRandomPrices]);
 
   // Setup and cleanup the interval
   useEffect(() => {
@@ -607,9 +602,9 @@ export default function PortfolioPage() {
     
     // Calculate values for margin update
     const isOption = trade.isOption;
-    const lotSize = trade.lotSize || 75; // Default to 75 if lotSize is not defined
-    // For options, we just need the amount * price, without multiplying by lotSize again
-    const tradeValue = exitAmount * currentPrice;
+    const lotSize = trade.lotSize || 1;
+    const contractMultiplier = isOption ? lotSize : 1;
+    const tradeValue = exitAmount * currentPrice * contractMultiplier;
     
     // Update the original trade status
     const updatedTrades = recentTrades.map(t => {
@@ -647,50 +642,10 @@ export default function PortfolioPage() {
       `${exitAmount} contracts (${exitAmount/lotSize} lots)` : 
       `${exitAmount} shares`;
       
-    const totalCostText = isOption ? 
-      ` for ₹${(exitAmount * currentPrice).toLocaleString()}` :
-      ` for ₹${(exitAmount * currentPrice).toLocaleString()}`;
-      
-    setTradeMessage(`Position closed: ${exitType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${asset.name} at ₹${currentPrice}${totalCostText}`);
+    setTradeMessage(`Position closed: ${exitType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${asset.name} at ₹${currentPrice}`);
     setShowTradeSuccess(true);
     setTimeout(() => setShowTradeSuccess(false), 5000);
-
-    // Close modal and reset form
-    setShowTradeModal(false);
-    setTradeAmount('');
-    setLimitPrice('');
-    setStopPrice('');
-    setTargetPrice('');
-    setStopLoss('');
-    setOrderType('market');
   };
-
-  const handleNiftyTrade = (index: Asset, tradeType: 'buy' | 'sell') => {
-    setShowOptionChain(true);
-  };
-
-  // Add useEffect for debugging
-  useEffect(() => {
-    console.log('Current Trades:', recentTrades);
-    console.log('Current Assets:', assets);
-  }, [recentTrades, assets]);
-
-  // Add this debugging effect
-  useEffect(() => {
-    // Debug log for active trades
-    const activeTrades = recentTrades.filter(trade => 
-      trade.status === 'executed' || trade.status === 'partially_completed'
-    );
-    console.log('Active trades that should be displayed:', activeTrades);
-    
-    // Check if assets exist for trades
-    const missingAssets = activeTrades.filter(trade => 
-      !assets.find(a => a.symbol === trade.asset)
-    );
-    if (missingAssets.length > 0) {
-      console.warn('Trades with missing assets:', missingAssets);
-    }
-  }, [recentTrades, assets]);
 
   // Update the handleTrade function to check for matching trades
   const handleTrade = () => {
@@ -706,16 +661,7 @@ export default function PortfolioPage() {
     }
 
     // For options and indices, validate lot size
-    const isOption = selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE');
-    if (isOption) {
-      const lotSize = selectedAsset.lotSize || 75;
-      if (newTradeAmount % lotSize !== 0) {
-        setTradeMessage(`For options: Quantity must be in multiples of ${lotSize} (1 lot = ${lotSize} contracts)`);
-        setShowTradeSuccess(true);
-        return;
-      }
-    } 
-    else if (selectedAsset.type === 'index' && selectedAsset.lotSize) {
+    if ((selectedAsset.type === 'options' || selectedAsset.type === 'index') && selectedAsset.lotSize) {
       if (newTradeAmount % selectedAsset.lotSize !== 0) {
         setTradeMessage(`Quantity must be in multiples of ${selectedAsset.lotSize} lots`);
         setShowTradeSuccess(true);
@@ -729,10 +675,10 @@ export default function PortfolioPage() {
       parseFloat(limitPrice);
 
     // Calculate total trade value including premium for options
-    const lotSize = selectedAsset.lotSize || 75; // Default to 75 if lotSize is not defined
-    // For options, we just multiply the number of contracts by the premium
-    // No need to multiply by lotSize again since the number of contracts already accounts for it
-    const tradeValue = newTradeAmount * tradePrice;
+    const isOption = selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE');
+    const lotSize = selectedAsset.lotSize || 1;
+    const contractMultiplier = isOption ? lotSize : 1;
+    const tradeValue = newTradeAmount * tradePrice * contractMultiplier;
 
     // Find active opposite trades for the same asset
     let remainingAmount = newTradeAmount;
@@ -817,7 +763,7 @@ export default function PortfolioPage() {
     const finalTrades = [newTrade, ...updatedTrades] as Trade[];
 
     // Update margin based on remaining amount
-    const marginAdjustment = remainingAmount * tradePrice;
+    const marginAdjustment = remainingAmount * tradePrice * contractMultiplier;
     const updatedMargin = {
       ...marginDetails,
       availableMargin: tradeType === 'buy' ? 
@@ -845,12 +791,8 @@ export default function PortfolioPage() {
       ` (${remainingAmount} ${isOption ? 'contracts' : 'shares'} remaining)` :
       '';
 
-    const totalCostText = isOption ? 
-      ` for ₹${(newTradeAmount * tradePrice).toLocaleString()}` :
-      ` for ₹${(newTradeAmount * tradePrice).toLocaleString()}`;
-
     setTradeMessage(
-      `${orderType === 'market' ? '' : 'Order placed: '}${tradeType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${selectedAsset.name}${matchedText}${remainingText}${totalCostText}`
+      `${orderType === 'market' ? '' : 'Order placed: '}${tradeType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${selectedAsset.name}${matchedText}${remainingText}`
     );
     setShowTradeSuccess(true);
     setTimeout(() => setShowTradeSuccess(false), 5000);
@@ -865,8 +807,35 @@ export default function PortfolioPage() {
     setOrderType('market');
   };
 
+  const handleNiftyTrade = (index: Asset, tradeType: 'buy' | 'sell') => {
+    setShowOptionChain(true);
+  };
+
+  // Add useEffect for debugging
+  useEffect(() => {
+    console.log('Current Trades:', recentTrades);
+    console.log('Current Assets:', assets);
+  }, [recentTrades, assets]);
+
+  // Add this debugging effect
+  useEffect(() => {
+    // Debug log for active trades
+    const activeTrades = recentTrades.filter(trade => 
+      trade.status === 'executed' || trade.status === 'partially_completed'
+    );
+    console.log('Active trades that should be displayed:', activeTrades);
+    
+    // Check if assets exist for trades
+    const missingAssets = activeTrades.filter(trade => 
+      !assets.find(a => a.symbol === trade.asset)
+    );
+    if (missingAssets.length > 0) {
+      console.warn('Trades with missing assets:', missingAssets);
+    }
+  }, [recentTrades, assets]);
+
   return (
-    <div className="min-h-screen bg-transparent">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black">
       <main className="container mx-auto px-4 py-8">
         {/* Trading Mode Selection Modal */}
         <AnimatePresence>
@@ -1945,69 +1914,12 @@ export default function PortfolioPage() {
                       <span>{selectedAsset.exchange}</span>
                       <span className="mx-1">•</span>
                       <span className="capitalize">{selectedAsset.type}</span>
-                      {(selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')) && (
-                        (() => {
-                          // Extract strike price safely
-                          const strikeMatch = selectedAsset.symbol.match(/\d+/);
-                          const strikePrice = strikeMatch ? strikeMatch[0] : '';
-                          
-                          return (
-                            <>
-                              <span className="mx-1">•</span>
-                              <span className="text-purple-400">
-                                {selectedAsset.symbol.includes('CE') ? 'Call' : 'Put'} 
-                                {strikePrice && ` @ ${strikePrice}`}
-                              </span>
-                              <span className="mx-1">•</span>
-                              <span className="text-blue-400">Lot: {selectedAsset.lotSize || 75}</span>
-                            </>
-                          );
-                        })()
-                      )}
                     </div>
                   </div>
                   <button onClick={() => setShowTradeModal(false)} className="text-gray-400 hover:text-white">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
-
-                {/* Add option details box if it's an option */}
-                {(selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')) && (
-                  <div className="bg-gray-800/70 rounded-lg p-3 mb-4 border border-gray-700/50">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-white">Option Details</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${selectedAsset.symbol.includes('CE') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                        {selectedAsset.symbol.includes('CE') ? 'CALL' : 'PUT'}
-                      </span>
-                    </div>
-                    {(() => {
-                      // Extract strike price safely
-                      const strikeMatch = selectedAsset.symbol.match(/\d+/);
-                      const strikePrice = strikeMatch ? strikeMatch[0] : 'N/A';
-                      
-                      return (
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <span className="text-gray-400">Strike Price:</span>
-                            <span className="text-white ml-1">₹{strikePrice}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400">Premium:</span>
-                            <span className="text-white ml-1">₹{selectedAsset.value.toFixed(2)}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400">Lot Size:</span>
-                            <span className="text-white ml-1">{selectedAsset.lotSize || 75} contracts</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-400">1 Lot Cost:</span>
-                            <span className="text-white ml-1">₹{((selectedAsset.lotSize || 75) * selectedAsset.value).toFixed(2)}</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
 
                 <div className="space-y-4 max-h-[calc(100vh-8rem)] overflow-y-auto px-1">
                   {/* Order Type Selection */}
@@ -2144,21 +2056,6 @@ export default function PortfolioPage() {
                       <span className="text-gray-400">Order Value</span>
                       <span className="text-white">₹{(parseFloat(tradeAmount || '0') * selectedAsset.value).toLocaleString()}</span>
                     </div>
-                    
-                    {/* Show calculation breakdown for options */}
-                    {(selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')) && (
-                      <div className="text-xs text-gray-400 border-t border-gray-600 pt-1 mt-1">
-                        <div className="flex justify-between">
-                          <span>Calculation:</span>
-                          <span>{parseFloat(tradeAmount || '0')} contracts × ₹{selectedAsset.value}</span>
-                        </div>
-                        <div className="flex justify-between mt-1">
-                          <span>Lots:</span>
-                          <span>{Math.floor(parseFloat(tradeAmount || '0') / (selectedAsset.lotSize || 75))} lots ({parseFloat(tradeAmount || '0')} contracts)</span>
-                        </div>
-                      </div>
-                    )}
-                    
                     <div className="flex justify-between text-xs">
                       <span className="text-gray-400">Margin Required</span>
                       <span className="text-white">₹{marginDetails.marginRequired.toLocaleString()}</span>

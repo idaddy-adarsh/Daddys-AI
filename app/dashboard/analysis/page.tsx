@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createChart, ColorType, Time, LineStyle, DeepPartial, ChartOptions, LineWidth } from 'lightweight-charts';
-import { Search, TrendingUp, TrendingDown, Clock, Calendar, Volume2, CandlestickChart } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Clock, Calendar, Volume2, CandlestickChart, ChevronDown, BarChart4 } from 'lucide-react';
 import { useNotifications } from '../layout';
 
 interface ChartData {
@@ -296,7 +296,7 @@ const popularSymbols = [
   { name: 'PERSISTENT', symbol: 'PERSISTENT.NS' },
 ];
 
-const CHART_BACKGROUND = '#1a1a1a';
+const CHART_BACKGROUND = 'rgba(0, 0, 0, 0)';
 const GRID_COLOR = '#2a2a2a';
 const TEXT_COLOR = '#d1d4dc';
 const BORDER_COLOR = '#303030';
@@ -339,10 +339,22 @@ export default function AnalysisPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [expiryType, setExpiryType] = useState<'spot' | 'monthly'>('monthly');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const previousPriceRef = useRef<number | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
   const symbol = searchParams.get('symbol') || '^NSEI';
+  
+  // Add state for OHLC info card
+  const [ohlcData, setOhlcData] = useState<{
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    time: string;
+  } | null>(null);
+  const [showOhlcCard, setShowOhlcCard] = useState(false);
   
   // Get notification context
   const { addNotification } = useNotifications();
@@ -360,6 +372,20 @@ export default function AnalysisPage() {
       item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
     ))
   );
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const fetchLTPData = async () => {
     try {
@@ -383,7 +409,7 @@ export default function AnalysisPage() {
       }
       
       // API now handles expiry date selection automatically
-      console.log(`Fetching LTP data for ${ltpSymbol}`);
+      console.log(`Fetching LTP data for symbol: ${symbol} (mapped to: ${ltpSymbol})`);
       const response = await fetch(`/api/ltp-calculator?symbol=${ltpSymbol}`);
       
       // Handle response errors
@@ -395,11 +421,11 @@ export default function AnalysisPage() {
           try {
             // Try to parse error JSON if available
             const errorData = await response.json();
-            console.error(`Failed to fetch LTP data (${status}):`, errorData);
+            console.error(`Failed to fetch LTP data for ${ltpSymbol} (${status}):`, errorData);
           } catch (parseError) {
             // If JSON parsing fails, get the error text
             const errorText = await response.text();
-            console.error(`Failed to fetch LTP data (${status}): ${errorText}`);
+            console.error(`Failed to fetch LTP data for ${ltpSymbol} (${status}): ${errorText}`);
           }
         }
         
@@ -410,10 +436,16 @@ export default function AnalysisPage() {
       // Parse successful response
       const data = await response.json();
       console.log(`LTP data received for ${ltpSymbol}:`, data);
+      
+      // Check if we have valid data
+      if (!data || !data.riskyResistance) {
+        console.warn(`Incomplete LTP data received for ${ltpSymbol}:`, data);
+      }
+      
       setLtpData(data);
     } catch (error) {
       // Log the complete error object for better debugging
-      console.error('Error in fetchLTPData:', error);
+      console.error(`Error in fetchLTPData for ${symbol}:`, error);
       
       // Don't disrupt UI, continue without LTP data
       setLtpData(null);
@@ -579,9 +611,11 @@ export default function AnalysisPage() {
       setIsLoading(true);
       try {
         // Fetch historical 5-minute candles
+        console.log(`Fetching data for symbol: ${symbol}`);
         const marketResponse = await fetch(`/api/yahoo-finance/intraday?symbol=${symbol}&interval=5m&range=1d`);
         if (!marketResponse.ok) throw new Error('Failed to fetch data');
         const data = await marketResponse.json();
+        console.log(`Received ${data.length} data points from API`);
         
         // Get current candle boundaries
         const { currentStartTime } = getCandleBoundaries();
@@ -592,13 +626,16 @@ export default function AnalysisPage() {
           return candleTime < currentStartTime && candleTime % 300 === 0;
         });
         
+        console.log(`After filtering, have ${historicalData.length} valid candles`);
+        
         // Sort historical data by time
         const sortedData = historicalData.sort((a: ChartData, b: ChartData) => Number(a.time) - Number(b.time));
         
         setChartData(sortedData);
         
-        // Fetch LTP data for all symbols
+        // Fetch LTP data for all symbols - ensure this happens for every symbol
         await fetchLTPData();
+        console.log('LTP data fetched for symbol:', symbol);
       } catch (error) {
         console.error('Error fetching market data:', error);
         setChartData([]);
@@ -619,14 +656,21 @@ export default function AnalysisPage() {
 
   // Use layout effect for chart initialization to ensure DOM measurements are accurate
   useLayoutEffect(() => {
-    if (!chartContainerRef.current) return;
+    console.log(`useLayoutEffect triggered, chartData length: ${chartData.length}`);
+    if (!chartContainerRef.current) {
+      console.log('Chart container ref is not available');
+      return;
+    }
 
     // Create chart if it doesn't exist
     if (!chartRef.current) {
       console.log('Creating new chart instance (layout effect)');
       const chartOptions: DeepPartial<ChartOptions> = {
         layout: {
-          background: { type: ColorType.Solid, color: CHART_BACKGROUND },
+          background: { 
+            type: ColorType.Solid, 
+            color: 'rgba(0, 0, 0, 0)' // Fully transparent background
+          },
           textColor: TEXT_COLOR,
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: 12,
@@ -713,27 +757,90 @@ export default function AnalysisPage() {
         },
       };
 
-      chartRef.current = createChart(chartContainerRef.current, chartOptions);
-      candlestickSeriesRef.current = chartRef.current.addCandlestickSeries({
-        upColor: UP_COLOR,
-        downColor: DOWN_COLOR,
-        borderVisible: false,
-        wickUpColor: UP_COLOR,
-        wickDownColor: DOWN_COLOR,
-        priceFormat: {
-          type: 'price',
-          precision: 2,
-          minMove: 0.01,
-        },
-        lastValueVisible: true,
-        priceLineVisible: true,
-        priceLineWidth: 1,
-        priceLineColor: BORDER_COLOR,
-        priceLineStyle: LineStyle.Solid,
-      });
+      try {
+        chartRef.current = createChart(chartContainerRef.current, chartOptions);
+        console.log('Chart created successfully');
+        
+        candlestickSeriesRef.current = chartRef.current.addCandlestickSeries({
+          upColor: UP_COLOR,
+          downColor: DOWN_COLOR,
+          borderVisible: false,
+          wickUpColor: UP_COLOR,
+          wickDownColor: DOWN_COLOR,
+          priceFormat: {
+            type: 'price',
+            precision: 2,
+            minMove: 0.01,
+          },
+          lastValueVisible: true,
+          priceLineVisible: true,
+          priceLineWidth: 1,
+          priceLineColor: BORDER_COLOR,
+          priceLineStyle: LineStyle.Solid,
+        });
+        console.log('Candlestick series added successfully');
 
-      // If we already have data, set it immediately
-      if (chartData.length > 0) {
+        // If we already have data, set it immediately
+        if (chartData.length > 0) {
+          console.log(`Setting initial chart data with ${chartData.length} points`);
+          const formattedData = chartData.map(item => ({
+            ...item,
+            time: Number(item.time) as Time
+          }));
+          candlestickSeriesRef.current.setData(formattedData);
+          chartRef.current.timeScale().fitContent();
+          console.log('Initial chart data set successfully');
+        } else {
+          console.log('No initial chart data available');
+        }
+        
+        // Add crosshair move handler for OHLC info card
+        chartRef.current.subscribeCrosshairMove((param: any) => {
+          if (
+            param === undefined || 
+            param.point === undefined || 
+            param.time === undefined || 
+            param.point.x < 0 || 
+            param.point.y < 0
+          ) {
+            // Hide card when cursor leaves the chart
+            setShowOhlcCard(false);
+            return;
+          }
+          
+          // Get the candle data at the crosshair position
+          const candle = param.seriesData.get(candlestickSeriesRef.current);
+          if (candle) {
+            const dateObj = new Date(param.time * 1000);
+            const timeStr = dateObj.toLocaleTimeString('en-IN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            });
+            
+            // Update OHLC data
+            setOhlcData({
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              time: timeStr
+            });
+            
+            // Show the card
+            setShowOhlcCard(true);
+          } else {
+            setShowOhlcCard(false);
+          }
+        });
+      } catch (error) {
+        console.error('Error creating chart:', error);
+      }
+    } else {
+      console.log('Chart already exists, updating if needed');
+      // Update existing chart with new data if available
+      if (chartData.length > 0 && candlestickSeriesRef.current) {
+        console.log(`Updating existing chart with ${chartData.length} data points`);
         const formattedData = chartData.map(item => ({
           ...item,
           time: Number(item.time) as Time
@@ -751,7 +858,7 @@ export default function AnalysisPage() {
       });
       chartRef.current.timeScale().fitContent();
     }
-  }, [chartContainerRef.current, chartData]);
+  }, [chartData]);
 
   // Remove the regular useEffect for chart creation since we're using useLayoutEffect instead
   useEffect(() => {
@@ -877,33 +984,33 @@ export default function AnalysisPage() {
 
       // Calculate the min and max prices
       if (allPrices.length > 0) {
-        const minPrice = Math.min(...allPrices);
-        const maxPrice = Math.max(...allPrices);
+      const minPrice = Math.min(...allPrices);
+      const maxPrice = Math.max(...allPrices);
       
-        // Calculate price range and padding
-        const priceRange = maxPrice - minPrice;
-        const padding = priceRange * 0.1; // 10% padding
+      // Calculate price range and padding
+      const priceRange = maxPrice - minPrice;
+      const padding = priceRange * 0.1; // 10% padding
 
-        // Set the visible range with padding
-        chartRef.current.applyOptions({
-          rightPriceScale: {
-            autoScale: false,
-            scaleMargins: {
-              top: 0.2,    // Increased top margin
-              bottom: 0.2, // Increased bottom margin
-            },
+      // Set the visible range with padding
+      chartRef.current.applyOptions({
+        rightPriceScale: {
+          autoScale: false,
+          scaleMargins: {
+            top: 0.2,    // Increased top margin
+            bottom: 0.2, // Increased bottom margin
           },
-        });
+        },
+      });
 
-        // Apply the price range to the series
-        candlestickSeriesRef.current.applyOptions({
-          autoscaleInfoProvider: () => ({
-            priceRange: {
-              minValue: minPrice - padding,
-              maxValue: maxPrice + padding,
-            },
-          }),
-        });
+      // Apply the price range to the series
+      candlestickSeriesRef.current.applyOptions({
+        autoscaleInfoProvider: () => ({
+          priceRange: {
+            minValue: minPrice - padding,
+            maxValue: maxPrice + padding,
+          },
+        }),
+      });
       }
 
       // Create price lines
@@ -933,29 +1040,29 @@ export default function AnalysisPage() {
       // For symbols without LTP data, just ensure proper chart scaling
       const prices = chartData.flatMap(candle => [Number(candle.high), Number(candle.low)]);
       if (prices.length > 0) {
-        const minPrice = Math.min(...prices);
-        const maxPrice = Math.max(...prices);
-        const padding = (maxPrice - minPrice) * 0.1;
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const padding = (maxPrice - minPrice) * 0.1;
 
-        chartRef.current.applyOptions({
-          rightPriceScale: {
-            autoScale: false,
-            scaleMargins: {
-              top: 0.2,
-              bottom: 0.2,
-            },
+      chartRef.current.applyOptions({
+        rightPriceScale: {
+          autoScale: false,
+          scaleMargins: {
+            top: 0.2,
+            bottom: 0.2,
           },
-        });
+        },
+      });
 
-        candlestickSeriesRef.current.applyOptions({
-          autoscaleInfoProvider: () => ({
-            priceRange: {
-              minValue: minPrice - padding,
-              maxValue: maxPrice + padding,
-            },
-          }),
-        });
-      }
+      candlestickSeriesRef.current.applyOptions({
+        autoscaleInfoProvider: () => ({
+          priceRange: {
+            minValue: minPrice - padding,
+            maxValue: maxPrice + padding,
+          },
+        }),
+      });
+    }
     }
   }, [chartData, ltpData, symbol]);
 
@@ -996,108 +1103,163 @@ export default function AnalysisPage() {
   }, []);
 
   return (
-    <div className="flex h-[calc(100vh-3rem)]">
-      {/* Symbol Navigation Sidebar */}
-      <div className="w-72 flex-shrink-0 bg-[#1a1a1a] border-r border-gray-800 p-4">
-        <div className="relative mb-6">
-          <input
-            type="text"
-            placeholder="Search symbols..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-gray-800/50 text-white px-4 py-2.5 rounded-lg pr-10 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500"
-          />
-          <Search className="absolute right-3 top-3 text-gray-400 h-5 w-5" />
-        </div>
+    <div className="flex flex-col h-[calc(100vh-3rem)]">
+      {/* Top Controls with Dropdown - make background transparent */}
+      <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-transparent">
+        {/* Symbol Dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="flex items-center space-x-2 bg-gray-800/50 text-white px-4 py-2.5 rounded-lg border border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500"
+          >
+            <div>
+              <span className="font-medium">{popularSymbols.find(s => s.symbol === symbol)?.name || symbol}</span>
+              <span className="text-sm text-gray-400 ml-2">{symbol}</span>
+            </div>
+            <ChevronDown className={`h-5 w-5 text-gray-400 transition-transform ${isDropdownOpen ? 'transform rotate-180' : ''}`} />
+          </button>
 
-        <div className="flex items-center justify-between text-sm text-gray-400 mb-3 px-1">
-          <span className="font-medium">
-            {searchQuery === '' ? 'Popular Symbols' : 'Search Results'}
-          </span>
-          <div className="flex items-center space-x-2">
-            <Clock className="h-4 w-4" />
-            <span>Live</span>
-          </div>
-        </div>
-        
-        <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-12rem)]">
-          {filteredSymbols.length > 0 ? (
-            filteredSymbols.map((item) => (
-            <button
-              key={item.symbol}
-              onClick={() => handleSymbolClick(item.symbol)}
-              className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
-                symbol === item.symbol
-                  ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
-                  : 'text-gray-300 hover:bg-gray-800/50'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{item.name}</div>
-                  <div className="text-sm opacity-75">{item.symbol}</div>
+          {isDropdownOpen && (
+            <div className="absolute z-50 mt-2 w-80 rounded-lg bg-gray-900 border border-gray-800 shadow-xl">
+              <div className="p-3">
+                <div className="relative mb-3">
+                  <input
+                    type="text"
+                    placeholder="Search symbols..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-gray-800/50 text-white px-4 py-2.5 rounded-lg pr-10 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500"
+                    autoFocus
+                  />
+                  <Search className="absolute right-3 top-3 text-gray-400 h-5 w-5" />
                 </div>
-                {symbol === item.symbol && (
-                  <CandlestickChart className="h-5 w-5 text-white" />
+
+                <div className="flex items-center justify-between text-sm text-gray-400 mb-2 px-1">
+                  <span className="font-medium">
+                    {searchQuery === '' ? 'Popular Symbols' : 'Search Results'}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <Clock className="h-4 w-4" />
+                    <span>Live</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto py-2">
+                {filteredSymbols.length > 0 ? (
+                  filteredSymbols.map((item) => (
+                    <button
+                      key={item.symbol}
+                      onClick={() => {
+                        handleSymbolClick(item.symbol);
+                        setIsDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-4 py-2 hover:bg-gray-800/50 ${
+                        symbol === item.symbol ? 'bg-orange-500/20 text-orange-400' : 'text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{item.name}</div>
+                          <div className="text-xs opacity-75">{item.symbol}</div>
+                        </div>
+                        {symbol === item.symbol && (
+                          <CandlestickChart className="h-4 w-4 text-orange-400" />
+                        )}
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-400">
+                    No symbols found. Try a different search.
+                  </div>
                 )}
               </div>
-            </button>
-            ))
-          ) : (
-            <div className="text-center py-8 text-gray-400">
-              No symbols found. Try a different search.
+            </div>
+          )}
+        </div>
+
+        {/* Current Price and Direction */}
+        <div className="flex items-center space-x-4">
+          {currentPrice && (
+            <div className="text-xl font-bold text-white">
+              {formatPrice(currentPrice)}
+            </div>
+          )}
+          {ltpData?.direction && (
+            <div className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-1.5 ${
+              ltpData.direction.includes('BULLISH') 
+                ? 'bg-green-500/10 text-green-400'
+                : ltpData.direction.includes('BEARISH')
+                ? 'bg-red-500/10 text-red-400'
+                : 'bg-yellow-500/10 text-yellow-400'
+            }`}>
+              {ltpData.direction.includes('BULLISH') ? (
+                <TrendingUp className="h-4 w-4" />
+              ) : ltpData.direction.includes('BEARISH') ? (
+                <TrendingDown className="h-4 w-4" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
+              <span>{ltpData.direction}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Chart Area */}
-      <div className="flex-1 bg-[#1a1a1a] relative flex flex-col">
+      {/* Chart Container */}
+      <div className="flex-1 relative w-full bg-transparent">
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="animate-spin rounded-full h-12 w-12 border-2 border-orange-500/20 border-t-orange-500"></div>
           </div>
         ) : (
           <>
-            {/* Top Controls */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-800">
-              {/* Symbol Info */}
-              <div className="flex items-center space-x-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-white">
-                    {popularSymbols.find(s => s.symbol === symbol)?.name || symbol}
-                  </h3>
-                  <div className="text-sm text-gray-400">{symbol}</div>
+            <div ref={chartContainerRef} className="w-full h-full absolute inset-0 bg-transparent"></div>
+            
+            {/* OHLC Info Card - simplified */}
+            <div 
+              className={`absolute top-4 right-4 z-50 bg-gray-900/90 border border-gray-700 rounded-md p-3 shadow-lg transition-all duration-200 ${
+                showOhlcCard ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-medium text-white flex items-center gap-2">
+                  <BarChart4 className="h-4 w-4 text-orange-400" />
+                  OHLC Data
                 </div>
-                {currentPrice && (
-                  <div className="text-xl font-bold text-white">
-                    {formatPrice(currentPrice)}
-                  </div>
-                )}
-              {ltpData?.direction && (
-                <div className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-1.5 ${
-                    ltpData.direction.includes('BULLISH') 
-                    ? 'bg-green-500/10 text-green-400'
-                      : ltpData.direction.includes('BEARISH')
-                    ? 'bg-red-500/10 text-red-400'
-                    : 'bg-yellow-500/10 text-yellow-400'
-                }`}>
-                    {ltpData.direction.includes('BULLISH') ? (
-                    <TrendingUp className="h-4 w-4" />
-                    ) : ltpData.direction.includes('BEARISH') ? (
-                    <TrendingDown className="h-4 w-4" />
-                  ) : (
-                    <Volume2 className="h-4 w-4" />
-                  )}
-                  <span>{ltpData.direction}</span>
+                <div className="text-xs font-medium text-gray-400">{ohlcData?.time || ''}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                  <span className="text-gray-300 text-sm">Open:</span>
+                  <span className="text-white font-medium text-sm ml-2">
+                    {ohlcData ? formatPrice(ohlcData.open) : '-'}
+                  </span>
                 </div>
-              )}
-            </div>
-            </div>
-
-            {/* Chart Container */}
-            <div className="flex-1 relative w-full h-full overflow-hidden">
-              <div ref={chartContainerRef} className="w-full h-full absolute inset-0"></div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
+                  <span className="text-gray-300 text-sm">High:</span>
+                  <span className="text-white font-medium text-sm ml-2">
+                    {ohlcData ? formatPrice(ohlcData.high) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+                  <span className="text-gray-300 text-sm">Low:</span>
+                  <span className="text-white font-medium text-sm ml-2">
+                    {ohlcData ? formatPrice(ohlcData.low) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-orange-500 mr-2"></div>
+                  <span className="text-gray-300 text-sm">Close:</span>
+                  <span className="text-white font-medium text-sm ml-2">
+                    {ohlcData ? formatPrice(ohlcData.close) : '-'}
+                  </span>
+                </div>
+              </div>
             </div>
           </>
         )}
