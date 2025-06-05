@@ -166,6 +166,12 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
         }
 
         const data: OptionChainResponse = await response.json();
+        
+        // Check if we got an error response
+        if (data.status === 'error' || data.error) {
+          throw new Error(data.error || 'Failed to fetch real-time option chain data');
+        }
+        
         if (data.status === 'success' && data.data && data.data.length > 0) {
           // Sort by strike price
           const sortedData = [...data.data].sort((a, b) => a.strike_price - b.strike_price);
@@ -183,7 +189,12 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
         }
       } catch (error) {
         console.error('Error fetching option chain:', error);
-        // Don't show error for regular updates
+        // Set error for user
+        if (error instanceof Error) {
+          setError(`${error.message}. Only real-time market data is used (no simulated data).`);
+        } else {
+          setError('Failed to load real-time option chain data. Only actual market data is used (no simulated data).');
+        }
       }
     };
 
@@ -194,7 +205,7 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
       fetchOptionChain()
         .then(() => setIsLoading(false))
         .catch(err => {
-          setError('Failed to load option chain data. Please try again.');
+          setError('Failed to load real-time option chain data. Only actual market data is used (no simulated data).');
           setIsLoading(false);
         });
       
@@ -359,6 +370,7 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
                 .catch(err => {
                   console.error(err);
                   setIsLoading(false);
+                  setError('Failed to refresh option chain data. Only real-time market data is used (no simulated data).');
                 });
             }}
             className="text-blue-400 hover:text-blue-300 focus:outline-none"

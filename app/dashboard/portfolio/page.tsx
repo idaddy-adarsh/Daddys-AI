@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, BarChart4, DollarSign, Activity, Plus, Minus, RefreshCw, Search, ChevronDown, X, Check, AlertCircle, Copy, Eye, EyeOff, Clock, Calendar, User, Percent, LineChart, CandlestickChart, Bot } from 'lucide-react';
 import OptionChain from '@/app/components/OptionChain';
+import { ComingSoonModal } from '@/app/components/ComingSoonModal';
 
 // Add trade type selection modal state
 interface TradingMode {
@@ -108,14 +109,23 @@ export default function PortfolioPage() {
   const [showAlgoTradingModal, setShowAlgoTradingModal] = useState(false);
   const [selectedInstrument, setSelectedInstrument] = useState<string | null>(null);
   // Add state for risk level
-  const [selectedRiskLevel, setSelectedRiskLevel] = useState<'conservative' | 'balanced' | 'dynamic'>('balanced');
+  const [selectedRiskLevel, setSelectedRiskLevel] = useState<'moderate' | 'risky' | 'highlyRisky'>('risky');
   const [riskPercentage, setRiskPercentage] = useState(50);
   const [algoParameters, setAlgoParameters] = useState<Record<string, any>>({
     timeFrame: '1h',
     capital: 10,
     stopLoss: 5,
-    takeProfit: 10
+    takeProfit: 10,
+    lotSize: 1,
+    minTarget: 50,
+    maxStopLoss: 100,
+    isActive: false
   });
+  const [ltpData, setLtpData] = useState<any>(null);
+  const [algoStatus, setAlgoStatus] = useState<'idle' | 'running' | 'error'>('idle');
+  const algoIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
+  const [comingSoonFeature, setComingSoonFeature] = useState('');
 
   // Define market symbols and their Yahoo Finance symbols
   const marketSymbols = {
@@ -402,47 +412,12 @@ export default function PortfolioPage() {
   // Add this new implementation instead:
   const updateOptionPricesRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Create a temporary function that will be properly defined later
-  // This avoids the reference error
-  const updateWithRandomPricesTemp = () => {};
-
-  // Safe update function that tries to use real data first, then falls back to random
+  // Safe update function that only uses real data from API
   const safeUpdateOptionPrices = useCallback(() => {
-    // Create a local reference to the function we'll define later
-    // This avoids the reference error
-    const updateRandomPrices = () => {
-      setAssets(currentAssets => {
-        if (!currentAssets || !Array.isArray(currentAssets)) return currentAssets;
-        
-        return currentAssets.map(asset => {
-          if (!asset || typeof asset !== 'object' || asset.type !== 'options') 
-            return asset;
-          
-          // Safe price calculation
-          const currentValue = typeof asset.value === 'number' && !isNaN(asset.value) 
-            ? asset.value 
-            : 0.05;
-          const currentChange = typeof asset.change24h === 'number' && !isNaN(asset.change24h)
-            ? asset.change24h
-            : 0;
-            
-          // Generate price movement
-          const priceChange = (Math.random() - 0.5) * 2;
-          const newValue = Math.max(0.05, currentValue * (1 + priceChange / 100));
-          
-          return {
-            ...asset,
-            value: newValue,
-            change24h: currentChange + priceChange
-          };
-        });
-      });
-    };
-
     try {
       if (!assets || !Array.isArray(assets)) return;
       
-      // First try to update options with real data from API
+      // Only try to update options with real data from API
       const optionAssets = assets.filter(asset => 
         asset && typeof asset === 'object' && asset.type === 'options'
       );
@@ -506,28 +481,24 @@ export default function PortfolioPage() {
                       };
                     }
                     
+                    // If no matching option found, keep the existing data
                     return asset;
                   });
                 });
               } else {
-                // Fallback to random price updates if API data is invalid
-                updateRandomPrices();
+                console.error('Invalid data format received from API');
+                // Don't update with fake data, just keep existing data
               }
             })
             .catch(err => {
               console.error('Error fetching option data:', err);
-              // Fall back to random price updates
-              updateRandomPrices();
+              // Don't update with fake data, just keep existing data
             });
-        } else {
-          // No expiry dates available, fall back to random updates
-          updateRandomPrices();
         }
       }
     } catch (error) {
       console.error('Error in safeUpdateOptionPrices:', error);
-      // Fall back to random price updates
-      updateRandomPrices();
+      // Don't update with fake data, just keep existing data
     }
   }, [assets]);
 
@@ -865,6 +836,315 @@ export default function PortfolioPage() {
     setOrderType('market');
   };
 
+  // Function to fetch LTP calculator data
+  const fetchLtpData = useCallback(async (symbol: string) => {
+    try {
+      const response = await fetch(`/api/ltp-calculator?symbol=${symbol}`);
+      if (!response.ok) {
+        throw new Error(`API responded with status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      console.log('LTP Calculator data:', data);
+      setLtpData(data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching LTP data:', error);
+      setAlgoStatus('error');
+      return null;
+    }
+  }, []);
+
+  // Function to determine if we should take a trade based on risk level and LTP data
+  const shouldTakeTrade = useCallback((data: any, riskLevel: 'moderate' | 'risky' | 'highlyRisky'): { 
+    shouldTrade: boolean; 
+    optionType?: 'CE' | 'PE'; 
+    reason?: string 
+  } => {
+    if (!data) return { shouldTrade: false };
+    
+    const currentPrice = assets.find(a => 
+      a.symbol === '^NSEI' || 
+      a.symbol === selectedInstrument?.toUpperCase()
+    )?.value;
+    
+    if (!currentPrice) return { shouldTrade: false };
+    
+    const moderateSupport = data.moderateSupport;
+    const moderateResistance = data.moderateResistance;
+    const riskySupport = data.riskySupport;
+    const riskyResistance = data.riskyResistance;
+    
+    // For moderate risk level, only take trades when price hits moderate levels
+    if (riskLevel === 'moderate') {
+      // Take call option when price hits moderate support
+      if (moderateSupport && Math.abs(currentPrice - moderateSupport) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'CE', 
+          reason: `Price (${currentPrice}) hit moderate support (${moderateSupport})` 
+        };
+      }
+      
+      // Take put option when price hits moderate resistance
+      if (moderateResistance && Math.abs(currentPrice - moderateResistance) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'PE', 
+          reason: `Price (${currentPrice}) hit moderate resistance (${moderateResistance})` 
+        };
+      }
+    }
+    
+    // For risky level, take trades when price hits either moderate or risky levels
+    if (riskLevel === 'risky') {
+      // Check moderate levels first
+      if (moderateSupport && Math.abs(currentPrice - moderateSupport) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'CE', 
+          reason: `Price (${currentPrice}) hit moderate support (${moderateSupport})` 
+        };
+      }
+      
+      if (moderateResistance && Math.abs(currentPrice - moderateResistance) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'PE', 
+          reason: `Price (${currentPrice}) hit moderate resistance (${moderateResistance})` 
+        };
+      }
+      
+      // Then check risky levels
+      if (riskySupport && Math.abs(currentPrice - riskySupport) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'CE', 
+          reason: `Price (${currentPrice}) hit risky support (${riskySupport})` 
+        };
+      }
+      
+      if (riskyResistance && Math.abs(currentPrice - riskyResistance) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'PE', 
+          reason: `Price (${currentPrice}) hit risky resistance (${riskyResistance})` 
+        };
+      }
+    }
+    
+    // For highly risky level, take trades at any level
+    if (riskLevel === 'highlyRisky') {
+      // Check all levels
+      if (moderateSupport && Math.abs(currentPrice - moderateSupport) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'CE', 
+          reason: `Price (${currentPrice}) hit moderate support (${moderateSupport})` 
+        };
+      }
+      
+      if (moderateResistance && Math.abs(currentPrice - moderateResistance) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'PE', 
+          reason: `Price (${currentPrice}) hit moderate resistance (${moderateResistance})` 
+        };
+      }
+      
+      if (riskySupport && Math.abs(currentPrice - riskySupport) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'CE', 
+          reason: `Price (${currentPrice}) hit risky support (${riskySupport})` 
+        };
+      }
+      
+      if (riskyResistance && Math.abs(currentPrice - riskyResistance) < 5) {
+        return { 
+          shouldTrade: true, 
+          optionType: 'PE', 
+          reason: `Price (${currentPrice}) hit risky resistance (${riskyResistance})` 
+        };
+      }
+    }
+    
+    return { shouldTrade: false };
+  }, [assets, selectedInstrument]);
+
+  // Function to find the appropriate in-the-money strike price
+  const findInTheMoneyStrike = useCallback((optionType: 'CE' | 'PE', currentPrice: number) => {
+    // For call options, find a strike price below the current price
+    if (optionType === 'CE') {
+      // Round down to the nearest 50
+      return Math.floor(currentPrice / 50) * 50;
+    } 
+    // For put options, find a strike price above the current price
+    else {
+      // Round up to the nearest 50
+      return Math.ceil(currentPrice / 50) * 50;
+    }
+  }, []);
+
+  // Function to execute an algorithmic trade
+  const executeAlgoTrade = useCallback(async (optionType: 'CE' | 'PE', reason: string) => {
+    try {
+      // Find the current price of the selected instrument
+      const asset = assets.find(a => 
+        a.symbol === '^NSEI' || 
+        a.symbol === selectedInstrument?.toUpperCase()
+      );
+      
+      if (!asset) {
+        console.error('Asset not found for algo trading');
+        return;
+      }
+      
+      const currentPrice = asset.value;
+      
+      // Find an appropriate in-the-money strike price
+      const strikePrice = findInTheMoneyStrike(optionType, currentPrice);
+      
+      // Calculate target and stop loss based on user parameters
+      const target = currentPrice + (optionType === 'CE' ? algoParameters.minTarget : -algoParameters.minTarget);
+      const stopLoss = currentPrice + (optionType === 'CE' ? -algoParameters.maxStopLoss : algoParameters.maxStopLoss);
+      
+      // Create option symbol
+      const instrumentSymbol = selectedInstrument?.toUpperCase() || 'NIFTY';
+      const optionSymbol = `${instrumentSymbol}${strikePrice}${optionType}`;
+      
+      // Get option premium (simulated for now)
+      const premium = optionType === 'CE' 
+        ? (currentPrice - strikePrice) + 50 + Math.random() * 20
+        : (strikePrice - currentPrice) + 50 + Math.random() * 20;
+      
+      // Create a new option asset if it doesn't exist
+      const optionAsset: Asset = {
+        id: `${instrumentSymbol}-${optionType}-${strikePrice}`,
+        name: `${instrumentSymbol} ${strikePrice} ${optionType}`,
+        symbol: optionSymbol,
+        exchange: 'NSE',
+        type: 'options',
+        amount: 0,
+        value: Math.max(10, premium),
+        change24h: 0,
+        lotSize: instrumentSymbol === 'NIFTY' ? 75 : 30 // NIFTY = 75, BANKNIFTY = 30
+      };
+      
+      // Add the option to assets if it doesn't exist
+      setAssets(prevAssets => {
+        const existingAsset = prevAssets.find(a => a.symbol === optionSymbol);
+        if (existingAsset) return prevAssets;
+        return [...prevAssets, optionAsset];
+      });
+      
+      // Create a trade for the option
+      const lotSize = instrumentSymbol === 'NIFTY' ? 75 : 30;
+      const tradeAmount = algoParameters.lotSize * lotSize;
+      
+      const trade: Trade = {
+        id: String(Date.now()),
+        type: 'buy',
+        asset: optionSymbol,
+        amount: tradeAmount,
+        price: Math.max(10, premium),
+        timestamp: new Date().toISOString(),
+        orderType: 'market',
+        status: 'executed',
+        lotSize: lotSize,
+        isOption: true,
+        strikePrice: strikePrice,
+        optionType: optionType,
+        premium: Math.max(10, premium)
+      };
+      
+      // Add the trade
+      setRecentTrades(prevTrades => [trade, ...prevTrades]);
+      
+      // Show success message
+      setTradeMessage(`Algo Trade: Bought ${tradeAmount} contracts (${algoParameters.lotSize} lots) of ${optionSymbol} at ₹${Math.max(10, premium).toFixed(2)} | Reason: ${reason} | Target: ${target.toFixed(2)}, SL: ${stopLoss.toFixed(2)}`);
+      setShowTradeSuccess(true);
+      setTimeout(() => setShowTradeSuccess(false), 5000);
+      
+      return true;
+    } catch (error) {
+      console.error('Error executing algo trade:', error);
+      return false;
+    }
+  }, [assets, algoParameters, selectedInstrument, findInTheMoneyStrike]);
+
+  // Function to run the algorithm trading logic
+  const runAlgoTrading = useCallback(async () => {
+    if (!selectedInstrument || !algoParameters.isActive) return;
+    
+    // Only allow algorithm trading for NIFTY and not Highly Risky
+    if (selectedInstrument !== 'nifty' || selectedRiskLevel === 'highlyRisky') {
+      console.log('Algorithm trading is only available for NIFTY with Moderate or Risky risk levels');
+      setAlgoParameters({
+        ...algoParameters,
+        isActive: false
+      });
+      setAlgoStatus('idle');
+      return;
+    }
+    
+    try {
+      // Map the selected instrument to the correct symbol for LTP calculator
+      const ltpSymbol = 'NIFTY';
+      
+      // Fetch LTP data
+      const data = await fetchLtpData(ltpSymbol);
+      if (!data) return;
+      
+      // Check if we should take a trade
+      const { shouldTrade, optionType, reason } = shouldTakeTrade(data, selectedRiskLevel);
+      
+      if (shouldTrade && optionType && reason) {
+        // Execute the trade
+        await executeAlgoTrade(optionType as 'CE' | 'PE', reason);
+      }
+    } catch (error) {
+      console.error('Error in algo trading:', error);
+      setAlgoStatus('error');
+    }
+  }, [selectedInstrument, algoParameters.isActive, selectedRiskLevel, fetchLtpData, shouldTakeTrade, executeAlgoTrade]);
+
+  // Set up and clean up the algorithm trading interval
+  useEffect(() => {
+    if (algoParameters.isActive && selectedInstrument) {
+      // Clear any existing interval
+      if (algoIntervalRef.current) {
+        clearInterval(algoIntervalRef.current);
+        algoIntervalRef.current = null;
+      }
+      
+      // Run once immediately
+      runAlgoTrading();
+      
+      // Then set up interval to run every 30 seconds
+      algoIntervalRef.current = setInterval(runAlgoTrading, 30000);
+      setAlgoStatus('running');
+      
+      console.log(`Algorithm trading started for ${selectedInstrument} with ${selectedRiskLevel} risk level`);
+    } else {
+      // Clear the interval if algo is not active
+      if (algoIntervalRef.current) {
+        clearInterval(algoIntervalRef.current);
+        algoIntervalRef.current = null;
+        setAlgoStatus('idle');
+        console.log('Algorithm trading stopped');
+      }
+    }
+    
+    // Cleanup function
+    return () => {
+      if (algoIntervalRef.current) {
+        clearInterval(algoIntervalRef.current);
+        algoIntervalRef.current = null;
+      }
+    };
+  }, [algoParameters.isActive, selectedInstrument, selectedRiskLevel, runAlgoTrading]);
+
   return (
     <div className="min-h-screen bg-transparent">
       <main className="container mx-auto px-4 py-8">
@@ -1021,7 +1301,18 @@ export default function PortfolioPage() {
                       ].map(instrument => (
                         <motion.button
                           key={instrument.id}
-                          onClick={() => setSelectedInstrument(instrument.id)}
+                          onClick={() => {
+                            if (instrument.id === 'nifty') {
+                              setSelectedInstrument(instrument.id);
+                              // Fetch LTP data when instrument is selected
+                              const ltpSymbol = 'NIFTY';
+                              fetchLtpData(ltpSymbol);
+                            } else {
+                              // Show coming soon modal for other instruments
+                              setComingSoonFeature(`${instrument.name} Algorithm Trading`);
+                              setShowComingSoonModal(true);
+                            }
+                          }}
                           className={`bg-gradient-to-b ${instrument.color} hover:bg-gray-700/40 rounded-xl p-6 text-center transition-all flex flex-col items-center justify-center border border-gray-700/50`}
                           whileHover={{ scale: 1.03 }}
                           whileTap={{ scale: 0.98 }}
@@ -1057,304 +1348,302 @@ export default function PortfolioPage() {
                       </div>
                     </div>
                     
-                    {/* Risk Selection UI - Semi-circle */}
+                    {/* Risk Selection UI - Simple Semicircle with 3 sections */}
                     <div className="mb-10 mt-5">
-                      <div className="relative h-64 w-full flex flex-col items-center justify-end">
-                        {/* Semi-circle background */}
-                        <div className="absolute w-[90%] h-[180px] bg-gradient-to-t from-gray-800/30 to-gray-800/10 rounded-t-full overflow-hidden border-t border-l border-r border-gray-700/50">
-                          {/* Gradient overlay */}
-                          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-green-500/10 to-red-500/10 opacity-70"></div>
-                          
-                          {/* Center line */}
-                          <div className="absolute top-0 left-1/2 w-[1px] h-full bg-gray-600/30 -translate-x-1/2"></div>
+                      <div className="relative w-full aspect-[2/1] flex flex-col items-center justify-end">
+                        {/* Perfect semicircle background */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-gray-800/30 to-gray-800/10 rounded-t-full overflow-hidden border-t border-l border-r border-gray-700/50">
+                          {/* Three-part gradient overlay */}
+                          <div className="absolute inset-0 flex">
+                            <div className="w-1/3 h-full bg-gradient-to-t from-green-500/20 to-green-500/5 rounded-tl-full"></div>
+                            <div className="w-1/3 h-full bg-gradient-to-t from-yellow-500/20 to-yellow-500/5"></div>
+                            <div className="w-1/3 h-full bg-gradient-to-t from-red-500/20 to-red-500/5 rounded-tr-full"></div>
+                          </div>
                           
                           {/* Risk level text indicators */}
-                          <div className="absolute top-[30px] left-[15%] text-xs font-medium text-blue-400">Low Risk</div>
-                          <div className="absolute top-[30px] left-1/2 text-xs font-medium text-green-400 -translate-x-1/2">Balanced</div>
-                          <div className="absolute top-[30px] right-[15%] text-xs font-medium text-red-400">High Risk</div>
+                          <div className="absolute top-[15%] left-[16%] text-sm font-medium text-green-400">Moderate</div>
+                          <div className="absolute top-[15%] left-1/2 text-sm font-medium text-yellow-400 -translate-x-1/2">Risky</div>
+                          <div className="absolute top-[15%] right-[16%] text-sm font-medium text-red-400">Highly Risky</div>
                           
                           <div className="absolute inset-0 flex items-center justify-center pt-10">
-                            <div className="text-center text-gray-400 text-sm font-medium tracking-wider opacity-70">RISK PROFILE</div>
+                            <div className="text-center text-gray-300 text-lg font-medium tracking-wider">RISK PROFILE</div>
                           </div>
                         </div>
                         
-                        {/* Risk level indicators */}
-                        <div className="absolute w-[90%] h-[180px] pointer-events-none">
-                          {/* Conservative section */}
-                          <div className="absolute top-0 left-0 w-1/3 h-full overflow-hidden">
-                            <div className={`absolute top-0 left-0 w-full h-full bg-gradient-to-r from-blue-500/30 to-blue-400/10 rounded-tl-full transition-opacity ${selectedRiskLevel === 'conservative' ? 'opacity-100' : 'opacity-0'}`}></div>
-                          </div>
-                          
-                          {/* Balanced section */}
-                          <div className="absolute top-0 left-1/3 w-1/3 h-full overflow-hidden">
-                            <div className={`absolute top-0 left-0 w-full h-full bg-gradient-to-r from-green-400/10 to-green-500/30 transition-opacity ${selectedRiskLevel === 'balanced' ? 'opacity-100' : 'opacity-0'}`}></div>
-                          </div>
-                          
-                          {/* Dynamic section */}
-                          <div className="absolute top-0 right-0 w-1/3 h-full overflow-hidden">
-                            <div className={`absolute top-0 right-0 w-full h-full bg-gradient-to-l from-red-500/30 to-red-400/10 rounded-tr-full transition-opacity ${selectedRiskLevel === 'dynamic' ? 'opacity-100' : 'opacity-0'}`}></div>
-                          </div>
-
-                          {/* Tick marks */}
-                          <div className="absolute bottom-0 w-full flex justify-between px-[10%]">
-                            {[...Array(5)].map((_, i) => (
-                              <div key={i} className="w-[1px] h-3 bg-gray-500/50"></div>
-                            ))}
-                          </div>
-
-                          {/* Glow effect at selected point */}
-                          <div className={`absolute top-[5px] transition-all duration-300 w-8 h-8 rounded-full blur-md ${
-                            selectedRiskLevel === 'conservative' ? 'left-[16%] bg-blue-500/70' : 
-                            selectedRiskLevel === 'balanced' ? 'left-[50%] bg-green-500/70 -translate-x-1/2' : 
-                            'right-[16%] bg-red-500/70'
-                          }`}></div>
-                        </div>
-                        
-                        {/* Draggable slider */}
-                        <div className="absolute bottom-0 w-[90%] flex justify-between px-4">
-                          <input 
-                            type="range" 
-                            min="0" 
-                            max="100" 
-                            value={riskPercentage}
-                            onChange={(e) => {
-                              const value = parseInt(e.target.value);
-                              setRiskPercentage(value);
-                              
-                              // Update risk level based on percentage
-                              if (value < 33) {
-                                setSelectedRiskLevel('conservative');
-                                // Update algo parameters based on risk percentage
-                                setAlgoParameters(prev => ({
-                                  ...prev,
-                                  capital: Math.max(5, Math.round(value * 15 / 33)),
-                                  stopLoss: Math.max(1, Math.round(value * 3 / 33)),
-                                  takeProfit: Math.max(3, Math.round(value * 7 / 33) + 3)
-                                }));
-                              } else if (value < 67) {
-                                setSelectedRiskLevel('balanced');
-                                // Map 33-67 range to appropriate parameter values
-                                const normalizedValue = (value - 33) / 34; // 0 to 1 in balanced range
-                                setAlgoParameters(prev => ({
-                                  ...prev,
-                                  capital: Math.round(15 + normalizedValue * 15), // 15-30%
-                                  stopLoss: Math.round(3 + normalizedValue * 4), // 3-7%
-                                  takeProfit: Math.round(10 + normalizedValue * 5) // 10-15%
-                                }));
-                              } else {
-                                setSelectedRiskLevel('dynamic');
-                                // Map 67-100 range to appropriate parameter values
-                                const normalizedValue = (value - 67) / 33; // 0 to 1 in dynamic range
-                                setAlgoParameters(prev => ({
-                                  ...prev,
-                                  capital: Math.round(30 + normalizedValue * 70), // 30-100%
-                                  stopLoss: Math.round(7 + normalizedValue * 8), // 7-15%
-                                  takeProfit: Math.round(15 + normalizedValue * 15) // 15-30%
-                                }));
-                              }
-                            }}
-                            className="w-full h-2 appearance-none bg-transparent cursor-pointer"
-                            style={{
-                              WebkitAppearance: 'none',
-                              background: 'linear-gradient(to right, #3b82f6 0%, #3b82f6 33%, #10b981 33%, #10b981 67%, #ef4444 67%, #ef4444 100%)'
-                            }}
-                          />
-                        </div>
-
-                        {/* Risk percentage indicator */}
-                        <div className="absolute bottom-[25px] left-1/2 transform -translate-x-1/2 bg-gray-800/90 border border-gray-700/50 rounded-full px-3 py-1 text-xs font-medium">
-                          <span className={`${
-                            selectedRiskLevel === 'conservative' ? 'text-blue-400' : 
-                            selectedRiskLevel === 'balanced' ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            Risk: {riskPercentage}%
-                          </span>
-                        </div>
-                        
-                        {/* Risk level buttons */}
-                        <div className="absolute bottom-[-30px] w-[90%] flex justify-between px-4">
-                          <motion.button 
-                            onClick={() => setSelectedRiskLevel('conservative')}
-                            className={`flex flex-col items-center transition-all duration-300`}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            <div className={`w-4 h-4 rounded-full mb-2 transition-colors duration-300 ${selectedRiskLevel === 'conservative' ? 'bg-blue-500 shadow-lg shadow-blue-500/50' : 'bg-gray-600'}`}></div>
-                            <span className={`text-sm font-medium transition-colors duration-300 ${selectedRiskLevel === 'conservative' ? 'text-blue-400' : 'text-gray-400'}`}>Conservative</span>
-                          </motion.button>
-                          
-                          <motion.button 
-                            onClick={() => setSelectedRiskLevel('balanced')}
-                            className={`flex flex-col items-center transition-all duration-300`}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            <div className={`w-4 h-4 rounded-full mb-2 transition-colors duration-300 ${selectedRiskLevel === 'balanced' ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-gray-600'}`}></div>
-                            <span className={`text-sm font-medium transition-colors duration-300 ${selectedRiskLevel === 'balanced' ? 'text-green-400' : 'text-gray-400'}`}>Balanced</span>
-                          </motion.button>
-                          
-                          <motion.button 
-                            onClick={() => setSelectedRiskLevel('dynamic')}
-                            className={`flex flex-col items-center transition-all duration-300`}
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.95 }}
-                          >
-                            <div className={`w-4 h-4 rounded-full mb-2 transition-colors duration-300 ${selectedRiskLevel === 'dynamic' ? 'bg-red-500 shadow-lg shadow-red-500/50' : 'bg-gray-600'}`}></div>
-                            <span className={`text-sm font-medium transition-colors duration-300 ${selectedRiskLevel === 'dynamic' ? 'text-red-400' : 'text-gray-400'}`}>Dynamic</span>
-                          </motion.button>
+                        {/* Selected section highlight */}
+                        <div className="absolute inset-0 pointer-events-none">
+                          <div className={`absolute top-0 left-0 w-1/3 h-full bg-green-500/30 rounded-tl-full transition-opacity ${selectedRiskLevel === 'moderate' ? 'opacity-100' : 'opacity-0'}`}></div>
+                          <div className={`absolute top-0 left-1/3 w-1/3 h-full bg-yellow-500/30 transition-opacity ${selectedRiskLevel === 'risky' ? 'opacity-100' : 'opacity-0'}`}></div>
+                          <div className={`absolute top-0 right-0 w-1/3 h-full bg-red-500/30 rounded-tr-full transition-opacity ${selectedRiskLevel === 'highlyRisky' ? 'opacity-100' : 'opacity-0'}`}></div>
                         </div>
                         
                         {/* Selected risk level display */}
-                        <div className="absolute bottom-[85px] bg-gray-800/80 border border-gray-700 rounded-lg px-6 py-2 text-center backdrop-blur-sm shadow-lg">
+                        <div className="absolute bottom-[30%] bg-gray-800/80 border border-gray-700 rounded-lg px-6 py-2 text-center backdrop-blur-sm shadow-lg">
                           <span className={`text-lg font-medium ${
-                            selectedRiskLevel === 'conservative' ? 'text-blue-400' : 
-                            selectedRiskLevel === 'balanced' ? 'text-green-400' : 'text-red-400'
+                            selectedRiskLevel === 'moderate' ? 'text-green-400' : 
+                            selectedRiskLevel === 'risky' ? 'text-yellow-400' : 'text-red-400'
                           }`}>
-                            {selectedRiskLevel === 'conservative' ? 'Conservative' : 
-                             selectedRiskLevel === 'balanced' ? 'Balanced' : 'Dynamic'}
+                            {selectedRiskLevel === 'moderate' ? 'Moderate' : 
+                             selectedRiskLevel === 'risky' ? 'Risky' : 'Highly Risky'}
                           </span>
                         </div>
-                        
-                        {/* Indicator line */}
-                        <div className={`absolute bottom-[85px] h-[85px] w-[1px] ${
-                          selectedRiskLevel === 'conservative' ? 'bg-gradient-to-t from-blue-500 to-transparent' :
-                          selectedRiskLevel === 'balanced' ? 'bg-gradient-to-t from-green-500 to-transparent' :
-                          'bg-gradient-to-t from-red-500 to-transparent'
-                        }`}></div>
-
-                        {/* Animated pulse at current position */}
-                        <motion.div 
-                          className="absolute bottom-[10px] w-5 h-5 rounded-full"
-                          style={{
-                            left: `calc(${riskPercentage}% - 10px)`,
-                            backgroundColor: selectedRiskLevel === 'conservative' ? '#3b82f6' : 
-                                           selectedRiskLevel === 'balanced' ? '#10b981' : 
-                                           '#ef4444'
-                          }}
-                          animate={{ 
-                            boxShadow: [
-                              `0 0 0 0 ${selectedRiskLevel === 'conservative' ? 'rgba(59, 130, 246, 0.7)' : 
-                                selectedRiskLevel === 'balanced' ? 'rgba(16, 185, 129, 0.7)' : 
-                                'rgba(239, 68, 68, 0.7)'}`,
-                              `0 0 0 10px ${selectedRiskLevel === 'conservative' ? 'rgba(59, 130, 246, 0)' : 
-                                selectedRiskLevel === 'balanced' ? 'rgba(16, 185, 129, 0)' : 
-                                'rgba(239, 68, 68, 0)'}`
-                            ]
-                          }}
-                          transition={{ 
-                            repeat: Infinity, 
-                            duration: 1.5
-                          }}
-                        />
                       </div>
                       
-                      <div className="text-center mt-8">
-                        <p className={`text-sm ${
-                          selectedRiskLevel === 'conservative' ? 'text-blue-300' : 
-                          selectedRiskLevel === 'balanced' ? 'text-green-300' : 'text-red-300'
-                        }`}>
-                          {selectedRiskLevel === 'conservative' ? 'Full control, zero guesswork. Lower returns with minimal risk.' : 
-                           selectedRiskLevel === 'balanced' ? 'Balanced approach with moderate risk and returns.' : 
-                           'Higher potential returns with increased risk tolerance.'}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gradient-to-b from-gray-800/30 to-gray-800/10 rounded-xl p-6 mb-6 border border-gray-700/50 backdrop-blur-sm">
-                      <h3 className="text-lg font-semibold text-white mb-4">Algorithm Parameters</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">Time Frame</label>
-                          <div className="relative">
-                            <select 
-                              className="w-full bg-gray-800/70 border border-gray-600 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
-                              value={algoParameters.timeFrame || '1h'}
-                              onChange={(e) => setAlgoParameters({...algoParameters, timeFrame: e.target.value})}
-                            >
-                              <option value="5m">5 Minutes</option>
-                              <option value="15m">15 Minutes</option>
-                              <option value="1h">1 Hour</option>
-                              <option value="1d">1 Day</option>
-                            </select>
-                            <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">Capital Allocation</label>
-                          <div className="flex items-center space-x-4">
-                            <input 
-                              type="range" 
-                              className={`w-full h-2 appearance-none rounded-full ${
-                                selectedRiskLevel === 'conservative' ? 'bg-gradient-to-r from-gray-700 to-blue-500' :
-                                selectedRiskLevel === 'balanced' ? 'bg-gradient-to-r from-gray-700 to-green-500' :
-                                'bg-gradient-to-r from-gray-700 to-red-500'
-                              }`}
-                              min="5"
-                              max="100"
-                              step="1"
-                              value={algoParameters.capital || 10}
-                              onChange={(e) => setAlgoParameters({...algoParameters, capital: parseInt(e.target.value)})}
-                            />
-                            <span className="text-white text-sm font-medium w-12 text-center">{algoParameters.capital || 10}%</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">Stop Loss</label>
-                          <div className="flex items-center space-x-4">
-                            <input 
-                              type="range" 
-                              className={`w-full h-2 appearance-none rounded-full ${
-                                selectedRiskLevel === 'conservative' ? 'bg-gradient-to-r from-gray-700 to-blue-500' :
-                                selectedRiskLevel === 'balanced' ? 'bg-gradient-to-r from-gray-700 to-green-500' :
-                                'bg-gradient-to-r from-gray-700 to-red-500'
-                              }`}
-                              min="1"
-                              max="15"
-                              step="1"
-                              value={algoParameters.stopLoss || 5}
-                              onChange={(e) => setAlgoParameters({...algoParameters, stopLoss: parseInt(e.target.value)})}
-                            />
-                            <span className="text-white text-sm font-medium w-12 text-center">{algoParameters.stopLoss || 5}%</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-300 mb-2">Take Profit</label>
-                          <div className="flex items-center space-x-4">
-                            <input 
-                              type="range" 
-                              className={`w-full h-2 appearance-none rounded-full ${
-                                selectedRiskLevel === 'conservative' ? 'bg-gradient-to-r from-gray-700 to-blue-500' :
-                                selectedRiskLevel === 'balanced' ? 'bg-gradient-to-r from-gray-700 to-green-500' :
-                                'bg-gradient-to-r from-gray-700 to-red-500'
-                              }`}
-                              min="3"
-                              max="30"
-                              step="1"
-                              value={algoParameters.takeProfit || 10}
-                              onChange={(e) => setAlgoParameters({...algoParameters, takeProfit: parseInt(e.target.value)})}
-                            />
-                            <span className="text-white text-sm font-medium w-12 text-center">{algoParameters.takeProfit || 10}%</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-8 flex justify-end space-x-4">
+                      {/* Risk level buttons */}
+                      <div className="flex justify-between px-4 mt-4">
                         <motion.button 
                           onClick={() => {
+                            setSelectedRiskLevel('moderate');
+                            setRiskPercentage(20);
+                            setAlgoParameters({
+                              ...algoParameters,
+                              capital: 10,
+                              stopLoss: 3,
+                              takeProfit: 7
+                            });
+                          }}
+                          className="flex flex-col items-center transition-all duration-300"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <div className={`w-5 h-5 rounded-full mb-2 transition-colors duration-300 ${selectedRiskLevel === 'moderate' ? 'bg-green-500 shadow-lg shadow-green-500/50' : 'bg-gray-600'}`}></div>
+                          <span className={`text-sm font-medium transition-colors duration-300 ${selectedRiskLevel === 'moderate' ? 'text-green-400' : 'text-gray-400'}`}>Moderate</span>
+                        </motion.button>
+                        
+                        <motion.button 
+                          onClick={() => {
+                            setSelectedRiskLevel('risky');
+                            setRiskPercentage(50);
+                            setAlgoParameters({
+                              ...algoParameters,
+                              capital: 25,
+                              stopLoss: 5,
+                              takeProfit: 10
+                            });
+                          }}
+                          className="flex flex-col items-center transition-all duration-300"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <div className={`w-5 h-5 rounded-full mb-2 transition-colors duration-300 ${selectedRiskLevel === 'risky' ? 'bg-yellow-500 shadow-lg shadow-yellow-500/50' : 'bg-gray-600'}`}></div>
+                          <span className={`text-sm font-medium transition-colors duration-300 ${selectedRiskLevel === 'risky' ? 'text-yellow-400' : 'text-gray-400'}`}>Risky</span>
+                        </motion.button>
+                        
+                        <motion.button 
+                          onClick={() => {
+                            setSelectedRiskLevel('highlyRisky');
+                            setRiskPercentage(80);
+                            setAlgoParameters({
+                              ...algoParameters,
+                              capital: 50,
+                              stopLoss: 8,
+                              takeProfit: 20
+                            });
+                            
+                            // Show coming soon modal for highly risky
+                            setComingSoonFeature('Highly Risky Algorithm Trading');
+                            setShowComingSoonModal(true);
+                          }}
+                          className="flex flex-col items-center transition-all duration-300"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <div className={`w-5 h-5 rounded-full mb-2 transition-colors duration-300 ${selectedRiskLevel === 'highlyRisky' ? 'bg-red-500 shadow-lg shadow-red-500/50' : 'bg-gray-600'}`}></div>
+                          <span className={`text-sm font-medium transition-colors duration-300 ${selectedRiskLevel === 'highlyRisky' ? 'text-red-400' : 'text-gray-400'}`}>Highly Risky</span>
+                        </motion.button>
+                      </div>
+                      
+                      {/* Strategy Selection */}
+                      
+                      {/* Trading Parameters */}
+                      <div className="mt-6 bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                        <h3 className="text-white text-sm font-medium mb-4">Trading Parameters</h3>
+                        
+                        <div className="grid grid-cols-3 gap-4 mb-4">
+                          {/* Lot Size */}
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Lot Size</label>
+                            <div className="flex items-center">
+                              <button 
+                                onClick={() => setAlgoParameters({...algoParameters, lotSize: Math.max(1, (algoParameters.lotSize || 1) - 1)})}
+                                className="bg-gray-700 hover:bg-gray-600 text-white w-8 h-8 rounded-l-lg flex items-center justify-center"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </button>
+                              <input 
+                                type="number" 
+                                value={algoParameters.lotSize || 1} 
+                                onChange={(e) => setAlgoParameters({...algoParameters, lotSize: Math.max(1, parseInt(e.target.value) || 1)})}
+                                className="bg-gray-700 border-y border-gray-600 text-center text-white w-12 h-8 focus:outline-none"
+                              />
+                              <button 
+                                onClick={() => setAlgoParameters({...algoParameters, lotSize: (algoParameters.lotSize || 1) + 1})}
+                                className="bg-gray-700 hover:bg-gray-600 text-white w-8 h-8 rounded-r-lg flex items-center justify-center"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {/* Minimum Target */}
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Min Target (points)</label>
+                            <div className="flex items-center">
+                              <button 
+                                onClick={() => setAlgoParameters({...algoParameters, minTarget: Math.max(10, (algoParameters.minTarget || 50) - 10)})}
+                                className="bg-gray-700 hover:bg-gray-600 text-white w-8 h-8 rounded-l-lg flex items-center justify-center"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </button>
+                              <input 
+                                type="number" 
+                                value={algoParameters.minTarget || 50} 
+                                onChange={(e) => setAlgoParameters({...algoParameters, minTarget: Math.max(10, parseInt(e.target.value) || 50)})}
+                                className="bg-gray-700 border-y border-gray-600 text-center text-white w-12 h-8 focus:outline-none"
+                              />
+                              <button 
+                                onClick={() => setAlgoParameters({...algoParameters, minTarget: (algoParameters.minTarget || 50) + 10})}
+                                className="bg-gray-700 hover:bg-gray-600 text-white w-8 h-8 rounded-r-lg flex items-center justify-center"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                          {/* Max Stop Loss */}
+                          <div>
+                            <label className="block text-xs text-gray-400 mb-1">Max Stop Loss (points)</label>
+                            <div className="flex items-center">
+                              <button 
+                                onClick={() => setAlgoParameters({...algoParameters, maxStopLoss: Math.max(10, (algoParameters.maxStopLoss || 100) - 10)})}
+                                className="bg-gray-700 hover:bg-gray-600 text-white w-8 h-8 rounded-l-lg flex items-center justify-center"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </button>
+                              <input 
+                                type="number" 
+                                value={algoParameters.maxStopLoss || 100} 
+                                onChange={(e) => setAlgoParameters({...algoParameters, maxStopLoss: Math.max(10, parseInt(e.target.value) || 100)})}
+                                className="bg-gray-700 border-y border-gray-600 text-center text-white w-12 h-8 focus:outline-none"
+                              />
+                              <button 
+                                onClick={() => setAlgoParameters({...algoParameters, maxStopLoss: (algoParameters.maxStopLoss || 100) + 10})}
+                                className="bg-gray-700 hover:bg-gray-600 text-white w-8 h-8 rounded-r-lg flex items-center justify-center"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Risk-based parameter indicators */}
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-gray-700/50 rounded-lg p-2 text-center">
+                            <div className="text-xs text-gray-400">Total Lots</div>
+                            <div className="text-white font-medium">{algoParameters.lotSize || 1} × {selectedInstrument === 'nifty' ? 75 : selectedInstrument === 'banknifty' ? 25 : 1}</div>
+                          </div>
+                          <div className="bg-gray-700/50 rounded-lg p-2 text-center">
+                            <div className="text-xs text-gray-400">Target Price</div>
+                            <div className="text-green-400 font-medium">+{algoParameters.minTarget || 50} points</div>
+                          </div>
+                          <div className="bg-gray-700/50 rounded-lg p-2 text-center">
+                            <div className="text-xs text-gray-400">Stop Loss</div>
+                            <div className="text-red-400 font-medium">-{algoParameters.maxStopLoss || 100} points</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* LTP Calculator Data */}
+                      <div className="mt-4 bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-white text-sm font-medium">LTP Calculator Data</h3>
+                          <button 
+                            onClick={async () => {
+                              const ltpSymbol = selectedInstrument === 'nifty' ? 'NIFTY' : 
+                                selectedInstrument === 'banknifty' ? 'BANKNIFTY' : 
+                                selectedInstrument?.toUpperCase();
+                              if (ltpSymbol) {
+                                await fetchLtpData(ltpSymbol);
+                              }
+                            }}
+                            className="text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-2 py-1 rounded flex items-center"
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Refresh
+                          </button>
+                        </div>
+                        
+                        {ltpData ? (
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <div className="bg-gray-700/50 rounded-lg p-2">
+                                <div className="text-xs text-gray-400">Moderate Support</div>
+                                <div className="text-green-400 font-medium">{ltpData.moderateSupport || 'N/A'}</div>
+                              </div>
+                              <div className="bg-gray-700/50 rounded-lg p-2">
+                                <div className="text-xs text-gray-400">Moderate Resistance</div>
+                                <div className="text-red-400 font-medium">{ltpData.moderateResistance || 'N/A'}</div>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <div className="bg-gray-700/50 rounded-lg p-2">
+                                <div className="text-xs text-gray-400">Risky Support</div>
+                                <div className="text-green-400 font-medium">{ltpData.riskySupport || 'N/A'}</div>
+                              </div>
+                              <div className="bg-gray-700/50 rounded-lg p-2">
+                                <div className="text-xs text-gray-400">Risky Resistance</div>
+                                <div className="text-red-400 font-medium">{ltpData.riskyResistance || 'N/A'}</div>
+                              </div>
+                            </div>
+                            <div className="col-span-2 bg-gray-700/50 rounded-lg p-2">
+                              <div className="text-xs text-gray-400">Market Direction</div>
+                              <div className={`font-medium ${
+                                ltpData.direction === 'BULLISH' ? 'text-green-400' :
+                                ltpData.direction === 'BEARISH' ? 'text-red-400' :
+                                'text-yellow-400'
+                              }`}>
+                                {ltpData.direction || 'UNKNOWN'}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-gray-400 text-sm">
+                            <p>No data available. Click Refresh to load data.</p>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="mt-8 flex justify-center space-x-4">
+                        <motion.button 
+                          onClick={() => {
+                            // Only allow algorithm trading for NIFTY and not Highly Risky
+                            if (selectedInstrument !== 'nifty') {
+                              setComingSoonFeature(`${selectedInstrument === 'banknifty' ? 'BANK NIFTY' : 'Stock'} Algorithm Trading`);
+                              setShowComingSoonModal(true);
+                              return;
+                            }
+                            
+                            if (selectedRiskLevel === 'highlyRisky') {
+                              setComingSoonFeature('Highly Risky Algorithm Trading');
+                              setShowComingSoonModal(true);
+                              return;
+                            }
+                            
+                            // Set algorithm to active
+                            setAlgoParameters({
+                              ...algoParameters,
+                              isActive: true
+                            });
                             setShowAlgoTradingModal(false);
-                            setTradeMessage(`${selectedInstrument === 'nifty' ? 'NIFTY' : selectedInstrument === 'banknifty' ? 'BANK NIFTY' : 'Stock'} algorithm with ${selectedRiskLevel} risk profile activated!`);
+                            setTradeMessage(`${selectedInstrument === 'nifty' ? 'NIFTY' : selectedInstrument === 'banknifty' ? 'BANK NIFTY' : 'Stock'} algorithm with ${selectedRiskLevel} risk profile activated! (${algoParameters.lotSize || 1} lots, Target: +${algoParameters.minTarget || 50} points, SL: -${algoParameters.maxStopLoss || 100} points)`);
                             setShowTradeSuccess(true);
                             setTimeout(() => {
                               setShowTradeSuccess(false);
-                              setSelectedInstrument(null);
                             }, 5000);
                           }}
                           className={`px-6 py-3 text-white rounded-lg font-medium transition-all flex items-center shadow-lg ${
-                            selectedRiskLevel === 'conservative' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20' :
-                            selectedRiskLevel === 'balanced' ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20' :
+                            selectedRiskLevel === 'moderate' ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20' :
+                            selectedRiskLevel === 'risky' ? 'bg-yellow-600 hover:bg-yellow-700 shadow-yellow-500/20' :
                             'bg-red-600 hover:bg-red-700 shadow-red-500/20'
                           }`}
                           whileHover={{ scale: 1.05 }}
@@ -1363,6 +1652,7 @@ export default function PortfolioPage() {
                           <Activity className="h-5 w-5 mr-2" />
                           Start Algorithm
                         </motion.button>
+                        
                         <motion.button 
                           onClick={() => {
                             setShowAlgoTradingModal(false);
@@ -1391,13 +1681,45 @@ export default function PortfolioPage() {
               <p className="text-gray-400">Welcome back, {user?.firstName}</p>
             </div>
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setShowAlgoTradingModal(true)}
-                className="flex items-center space-x-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all transform hover:scale-105"
-              >
-                <Bot className="h-5 w-5" />
-                <span>Algo Trading</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setShowAlgoTradingModal(true)}
+                  className="flex items-center space-x-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-2 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all transform hover:scale-105"
+                >
+                  <Bot className="h-5 w-5" />
+                  <span>Algo Trading</span>
+                  {algoStatus === 'running' && (
+                    <div className="flex items-center ml-2">
+                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                      <span className="text-xs ml-1">Active</span>
+                    </div>
+                  )}
+                  {algoStatus === 'error' && (
+                    <div className="flex items-center ml-2">
+                      <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                      <span className="text-xs ml-1">Error</span>
+                    </div>
+                  )}
+                </button>
+                
+                {algoStatus === 'running' && (
+                  <button
+                    onClick={() => {
+                      setAlgoParameters({
+                        ...algoParameters,
+                        isActive: false
+                      });
+                      setTradeMessage(`Algorithm trading stopped`);
+                      setShowTradeSuccess(true);
+                      setTimeout(() => setShowTradeSuccess(false), 3000);
+                    }}
+                    className="flex items-center space-x-1 bg-red-500 text-white px-3 py-2 rounded-lg hover:bg-red-600 transition-all"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="text-sm">Stop</span>
+                  </button>
+                )}
+              </div>
               <div className="text-right">
                 <p className="text-3xl font-bold text-white">₹{marginDetails.availableMargin.toLocaleString()}</p>
                 <div className="flex items-center justify-end space-x-2 text-sm">
@@ -2244,6 +2566,13 @@ export default function PortfolioPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Coming Soon Modal */}
+        <ComingSoonModal 
+          isOpen={showComingSoonModal}
+          onClose={() => setShowComingSoonModal(false)}
+          feature={comingSoonFeature}
+        />
       </main>
     </div>
   );

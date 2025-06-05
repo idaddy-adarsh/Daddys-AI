@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createChart, ColorType, Time, LineStyle, DeepPartial, ChartOptions, LineWidth } from 'lightweight-charts';
-import { Search, TrendingUp, TrendingDown, Clock, Calendar, Volume2, CandlestickChart, ChevronDown, BarChart4 } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Clock, Calendar, Volume2, CandlestickChart, ChevronDown, BarChart4, BarChart2, Settings, X } from 'lucide-react';
 import { useNotifications } from '../layout';
 
 interface ChartData {
@@ -47,6 +47,17 @@ interface PriceLine {
     axisLabelVisible: boolean;
     title: string;
   };
+}
+
+// Add interface for indicators
+interface Indicator {
+  id: string;
+  name: string;
+  enabled: boolean;
+  type: 'ltp' | 'ma' | 'bollinger' | 'rsi';
+  color?: string;
+  series?: any;
+  params?: any;
 }
 
 interface TimeInterval {
@@ -346,6 +357,18 @@ export default function AnalysisPage() {
   const router = useRouter();
   const symbol = searchParams.get('symbol') || '^NSEI';
   
+  // Add state for indicators
+  const [indicators, setIndicators] = useState<Indicator[]>([
+    { id: 'ltp', name: 'LTP Lines', enabled: false, type: 'ltp' },
+    { id: 'ma20', name: 'MA 20', enabled: false, type: 'ma', color: '#2962FF', params: { period: 20 } },
+    { id: 'ma50', name: 'MA 50', enabled: false, type: 'ma', color: '#FF6D00', params: { period: 50 } },
+    { id: 'ma200', name: 'MA 200', enabled: false, type: 'ma', color: '#E91E63', params: { period: 200 } },
+    { id: 'bollinger', name: 'Bollinger Bands', enabled: false, type: 'bollinger', params: { period: 20, stdDev: 2 } },
+    { id: 'rsi', name: 'RSI', enabled: false, type: 'rsi', params: { period: 14 } }
+  ]);
+  const [isIndicatorsMenuOpen, setIsIndicatorsMenuOpen] = useState(false);
+  const indicatorsMenuRef = useRef<HTMLDivElement>(null);
+  
   // Add state for OHLC info card
   const [ohlcData, setOhlcData] = useState<{
     open: number;
@@ -386,6 +409,39 @@ export default function AnalysisPage() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Close indicators menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (indicatorsMenuRef.current && !indicatorsMenuRef.current.contains(event.target as Node)) {
+        setIsIndicatorsMenuOpen(false);
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Function to toggle indicator with animation
+  const toggleIndicator = (id: string) => {
+    // Apply the animation effect
+    const indicatorElement = document.getElementById(`indicator-${id}`);
+    if (indicatorElement) {
+      indicatorElement.classList.add('animate-toggle');
+      setTimeout(() => {
+        indicatorElement.classList.remove('animate-toggle');
+      }, 500);
+    }
+    
+    // Toggle the indicator state
+    setIndicators(prev => prev.map(indicator => 
+      indicator.id === id 
+        ? { ...indicator, enabled: !indicator.enabled } 
+        : indicator
+    ));
+  };
 
   const fetchLTPData = async () => {
     try {
@@ -730,8 +786,13 @@ export default function AnalysisPage() {
           fixRightEdge: true,
           lockVisibleTimeRangeOnResize: true,
           tickMarkFormatter: (time: number) => {
-            return formatTime(time);
-          }
+            const date = new Date(time * 1000);
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+          },
+          ticksVisible: true,
+          shiftVisibleRangeOnNewBar: false
         },
         localization: {
           timeFormatter: (time: number) => {
@@ -788,7 +849,41 @@ export default function AnalysisPage() {
             time: Number(item.time) as Time
           }));
           candlestickSeriesRef.current.setData(formattedData);
-          chartRef.current.timeScale().fitContent();
+          
+          // Set visible range to show full trading day (9:15 AM to 3:30 PM)
+          const today = new Date();
+          today.setHours(0, 0, 0, 0); // Reset to start of day
+          
+          const marketOpen = new Date(today);
+          marketOpen.setHours(9, 15, 0, 0); // Market opens at 9:15 AM
+          
+          const marketClose = new Date(today);
+          marketClose.setHours(15, 30, 0, 0); // Market closes at 3:30 PM
+          
+          // Always show the full trading day regardless of current time
+          chartRef.current.timeScale().setVisibleRange({
+            from: Math.floor(marketOpen.getTime() / 1000),
+            to: Math.floor(marketClose.getTime() / 1000)
+          });
+          
+          // Configure time scale to show regular interval labels
+          chartRef.current.applyOptions({
+            timeScale: {
+              tickMarkFormatter: (time: number) => {
+                const date = new Date(time * 1000);
+                const hours = date.getHours().toString().padStart(2, '0');
+                const minutes = date.getMinutes().toString().padStart(2, '0');
+                return `${hours}:${minutes}`;
+              },
+              secondsVisible: false,
+              borderVisible: true,
+              fixLeftEdge: true,
+              fixRightEdge: true,
+              ticksVisible: true,
+              uniformDistribution: true
+            }
+          });
+          
           console.log('Initial chart data set successfully');
         } else {
           console.log('No initial chart data available');
@@ -846,7 +941,40 @@ export default function AnalysisPage() {
           time: Number(item.time) as Time
         }));
         candlestickSeriesRef.current.setData(formattedData);
-        chartRef.current.timeScale().fitContent();
+        
+        // Set visible range to show full trading day (9:15 AM to 3:30 PM)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Reset to start of day
+        
+        const marketOpen = new Date(today);
+        marketOpen.setHours(9, 15, 0, 0); // Market opens at 9:15 AM
+        
+        const marketClose = new Date(today);
+        marketClose.setHours(15, 30, 0, 0); // Market closes at 3:30 PM
+        
+        // Always show the full trading day regardless of current time
+        chartRef.current.timeScale().setVisibleRange({
+          from: Math.floor(marketOpen.getTime() / 1000),
+          to: Math.floor(marketClose.getTime() / 1000)
+        });
+        
+        // Configure time scale to show regular interval labels
+        chartRef.current.applyOptions({
+          timeScale: {
+            tickMarkFormatter: (time: number) => {
+              const date = new Date(time * 1000);
+              const hours = date.getHours().toString().padStart(2, '0');
+              const minutes = date.getMinutes().toString().padStart(2, '0');
+              return `${hours}:${minutes}`;
+            },
+            secondsVisible: false,
+            borderVisible: true,
+            fixLeftEdge: true,
+            fixRightEdge: true,
+            ticksVisible: true,
+            uniformDistribution: true
+          }
+        });
       }
     }
 
@@ -856,7 +984,6 @@ export default function AnalysisPage() {
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight,
       });
-      chartRef.current.timeScale().fitContent();
     }
   }, [chartData]);
 
@@ -887,16 +1014,27 @@ export default function AnalysisPage() {
 
     candlestickSeriesRef.current.setData(formattedData);
 
-    // Fit content to show all data
-    chartRef.current.timeScale().fitContent();
+    // Set visible range to show full trading day (9:15 AM to 3:30 PM)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Reset to start of day
+    
+    const marketOpen = new Date(today);
+    marketOpen.setHours(9, 15, 0, 0); // Market opens at 9:15 AM
+    
+    const marketClose = new Date(today);
+    marketClose.setHours(15, 30, 0, 0); // Market closes at 3:30 PM
+    
+    // Always show the full trading day regardless of current time
+    chartRef.current.timeScale().setVisibleRange({
+      from: Math.floor(marketOpen.getTime() / 1000),
+      to: Math.floor(marketClose.getTime() / 1000)
+    });
   }, [chartData]);
 
-  // Update price lines when LTP data changes
+  // Update price lines when LTP data and indicators change
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current) return;
 
-    // Update price lines for all symbols when LTP data is available
-    if (ltpData) {
       // Remove existing price lines
       if (candlestickSeriesRef.current._priceLines) {
         candlestickSeriesRef.current._priceLines.forEach((line: PriceLine) => {
@@ -904,6 +1042,10 @@ export default function AnalysisPage() {
         });
       }
       candlestickSeriesRef.current._priceLines = [] as PriceLine[];
+
+    // Check if LTP indicator is enabled
+    const ltpIndicator = indicators.find(ind => ind.id === 'ltp');
+    if (!ltpIndicator?.enabled || !ltpData) return;
 
       // Define all price levels with their properties
       const priceLevels = [
@@ -973,46 +1115,6 @@ export default function AnalysisPage() {
         }
       ];
 
-      // Get all valid prices including candle data
-      const allPrices = [...chartData.flatMap(candle => [
-        Number(candle.high),
-        Number(candle.low)
-      ]), ...priceLevels
-        .map(level => level.price)
-        .filter(price => price && !isNaN(Number(price)))
-      ].filter(price => !isNaN(price)) as number[];
-
-      // Calculate the min and max prices
-      if (allPrices.length > 0) {
-      const minPrice = Math.min(...allPrices);
-      const maxPrice = Math.max(...allPrices);
-      
-      // Calculate price range and padding
-      const priceRange = maxPrice - minPrice;
-      const padding = priceRange * 0.1; // 10% padding
-
-      // Set the visible range with padding
-      chartRef.current.applyOptions({
-        rightPriceScale: {
-          autoScale: false,
-          scaleMargins: {
-            top: 0.2,    // Increased top margin
-            bottom: 0.2, // Increased bottom margin
-          },
-        },
-      });
-
-      // Apply the price range to the series
-      candlestickSeriesRef.current.applyOptions({
-        autoscaleInfoProvider: () => ({
-          priceRange: {
-            minValue: minPrice - padding,
-            maxValue: maxPrice + padding,
-          },
-        }),
-      });
-      }
-
       // Create price lines
       priceLevels.forEach(level => {
         if (level.price && level.price !== null && !isNaN(Number(level.price))) {
@@ -1036,35 +1138,12 @@ export default function AnalysisPage() {
           }
         }
       });
-    } else {
-      // For symbols without LTP data, just ensure proper chart scaling
-      const prices = chartData.flatMap(candle => [Number(candle.high), Number(candle.low)]);
-      if (prices.length > 0) {
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const padding = (maxPrice - minPrice) * 0.1;
+  }, [chartData, ltpData, indicators]);
 
-      chartRef.current.applyOptions({
-        rightPriceScale: {
-          autoScale: false,
-          scaleMargins: {
-            top: 0.2,
-            bottom: 0.2,
-          },
-        },
-      });
-
-      candlestickSeriesRef.current.applyOptions({
-        autoscaleInfoProvider: () => ({
-          priceRange: {
-            minValue: minPrice - padding,
-            maxValue: maxPrice + padding,
-          },
-        }),
-      });
-    }
-    }
-  }, [chartData, ltpData, symbol]);
+  // Apply indicators when chart data or indicators change
+  useEffect(() => {
+    applyIndicators();
+  }, [chartData, indicators.map(i => i.enabled).join(',')]);
 
   const handleSymbolClick = (newSymbol: string) => {
     // Set loading state before navigation
@@ -1091,7 +1170,6 @@ export default function AnalysisPage() {
           width: chartContainerRef.current.clientWidth,
           height: chartContainerRef.current.clientHeight,
         });
-        chartRef.current.timeScale().fitContent();
       }
     };
 
@@ -1101,6 +1179,253 @@ export default function AnalysisPage() {
       window.removeEventListener('resize', handleResize);
     };
   }, []);
+
+  // Function to calculate moving average
+  const calculateMA = (data: ChartData[], period: number): {time: Time, value: number}[] => {
+    const result: {time: Time, value: number}[] = [];
+    
+    if (data.length < period) return result;
+    
+    for (let i = period - 1; i < data.length; i++) {
+      const sum = data.slice(i - period + 1, i + 1).reduce((acc, candle) => acc + candle.close, 0);
+      const ma = sum / period;
+      result.push({
+        time: Number(data[i].time) as Time,
+        value: ma
+      });
+    }
+    
+    return result;
+  };
+
+  // Function to calculate Bollinger Bands
+  const calculateBollingerBands = (data: ChartData[], period: number, stdDev: number): {
+    time: Time, 
+    upper: number, 
+    middle: number, 
+    lower: number
+  }[] => {
+    const result: {time: Time, upper: number, middle: number, lower: number}[] = [];
+    
+    if (data.length < period) return result;
+    
+    for (let i = period - 1; i < data.length; i++) {
+      const slice = data.slice(i - period + 1, i + 1);
+      const closes = slice.map(candle => candle.close);
+      
+      // Calculate MA (middle band)
+      const ma = closes.reduce((sum, close) => sum + close, 0) / period;
+      
+      // Calculate standard deviation
+      const squaredDiffs = closes.map(close => Math.pow(close - ma, 2));
+      const variance = squaredDiffs.reduce((sum, diff) => sum + diff, 0) / period;
+      const sd = Math.sqrt(variance);
+      
+      result.push({
+        time: Number(data[i].time) as Time,
+        upper: ma + (sd * stdDev),
+        middle: ma,
+        lower: ma - (sd * stdDev)
+      });
+    }
+    
+    return result;
+  };
+
+  // Function to calculate RSI
+  const calculateRSI = (data: ChartData[], period: number): {time: Time, value: number}[] => {
+    const result: {time: Time, value: number}[] = [];
+    
+    if (data.length <= period) return result;
+    
+    // Calculate price changes
+    const changes: number[] = [];
+    for (let i = 1; i < data.length; i++) {
+      changes.push(data[i].close - data[i-1].close);
+    }
+    
+    // Calculate initial average gain and loss
+    let avgGain = 0;
+    let avgLoss = 0;
+    
+    for (let i = 0; i < period; i++) {
+      if (changes[i] >= 0) {
+        avgGain += changes[i];
+      } else {
+        avgLoss += Math.abs(changes[i]);
+      }
+    }
+    
+    avgGain /= period;
+    avgLoss /= period;
+    
+    // Calculate RSI for each point
+    for (let i = period; i < data.length - 1; i++) {
+      // Update average gain and loss using smoothing method
+      const change = changes[i];
+      const newGain = change >= 0 ? change : 0;
+      const newLoss = change < 0 ? Math.abs(change) : 0;
+      
+      avgGain = ((avgGain * (period - 1)) + newGain) / period;
+      avgLoss = ((avgLoss * (period - 1)) + newLoss) / period;
+      
+      // Calculate RS and RSI
+      const rs = avgGain / (avgLoss === 0 ? 0.001 : avgLoss); // Avoid division by zero
+      const rsi = 100 - (100 / (1 + rs));
+      
+      result.push({
+        time: Number(data[i+1].time) as Time,
+        value: rsi
+      });
+    }
+    
+    return result;
+  };
+
+  // Function to apply indicators
+  const applyIndicators = () => {
+    if (!chartRef.current || !candlestickSeriesRef.current || chartData.length === 0) return;
+    
+    // Clear existing indicator series
+    indicators.forEach(indicator => {
+      if (indicator.series) {
+        if (Array.isArray(indicator.series)) {
+          indicator.series.forEach(series => chartRef.current.removeSeries(series));
+        } else {
+          chartRef.current.removeSeries(indicator.series);
+        }
+        indicator.series = undefined;
+      }
+    });
+    
+    // Apply enabled indicators
+    const updatedIndicators = [...indicators];
+    
+    updatedIndicators.forEach((indicator, index) => {
+      if (!indicator.enabled) return;
+      
+      switch (indicator.type) {
+        case 'ltp':
+          // LTP lines are handled separately in the useEffect
+          break;
+          
+        case 'ma':
+          if (indicator.params?.period) {
+            const maData = calculateMA(chartData, indicator.params.period);
+            const series = chartRef.current.addLineSeries({
+              color: indicator.color || '#2962FF',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: `MA ${indicator.params.period}`,
+            });
+            series.setData(maData);
+            updatedIndicators[index].series = series;
+          }
+          break;
+          
+        case 'bollinger':
+          if (indicator.params?.period && indicator.params?.stdDev) {
+            const bbData = calculateBollingerBands(chartData, indicator.params.period, indicator.params.stdDev);
+            
+            // Middle band
+            const middleSeries = chartRef.current.addLineSeries({
+              color: '#2962FF',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: `BB Middle (${indicator.params.period})`,
+            });
+            middleSeries.setData(bbData.map(item => ({
+              time: item.time,
+              value: item.middle
+            })));
+            
+            // Upper band
+            const upperSeries = chartRef.current.addLineSeries({
+              color: '#2962FF',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: `BB Upper (${indicator.params.period}, ${indicator.params.stdDev})`,
+            });
+            upperSeries.setData(bbData.map(item => ({
+              time: item.time,
+              value: item.upper
+            })));
+            
+            // Lower band
+            const lowerSeries = chartRef.current.addLineSeries({
+              color: '#2962FF',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: `BB Lower (${indicator.params.period}, ${indicator.params.stdDev})`,
+            });
+            lowerSeries.setData(bbData.map(item => ({
+              time: item.time,
+              value: item.lower
+            })));
+            
+            // Store all series references
+            updatedIndicators[index].series = [middleSeries, upperSeries, lowerSeries];
+          }
+          break;
+          
+        case 'rsi':
+          if (indicator.params?.period) {
+            const rsiData = calculateRSI(chartData, indicator.params.period);
+            
+            // Create a separate pane for RSI
+            const rsiSeries = chartRef.current.addLineSeries({
+              color: '#9C27B0',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: `RSI (${indicator.params.period})`,
+              pane: 1,
+            });
+            
+            rsiSeries.setData(rsiData);
+            
+            // Add horizontal lines at 70 and 30 levels
+            const rsiUpperLine = chartRef.current.addLineSeries({
+              color: '#FF5252',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              pane: 1,
+            });
+            
+            const rsiLowerLine = chartRef.current.addLineSeries({
+              color: '#4CAF50',
+              lineWidth: 1,
+              lineStyle: LineStyle.Dashed,
+              pane: 1,
+            });
+            
+            if (rsiData.length > 0) {
+              rsiUpperLine.setData([
+                { time: rsiData[0].time, value: 70 },
+                { time: rsiData[rsiData.length - 1].time, value: 70 }
+              ]);
+              
+              rsiLowerLine.setData([
+                { time: rsiData[0].time, value: 30 },
+                { time: rsiData[rsiData.length - 1].time, value: 30 }
+              ]);
+            }
+            
+            // Store all series references
+            updatedIndicators[index].series = [rsiSeries, rsiUpperLine, rsiLowerLine];
+          }
+          break;
+      }
+    });
+    
+    setIndicators(updatedIndicators);
+  };
 
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)]">
@@ -1179,7 +1504,7 @@ export default function AnalysisPage() {
           )}
         </div>
 
-        {/* Current Price and Direction */}
+        {/* Current Price, Direction, and Indicators Button */}
         <div className="flex items-center space-x-4">
           {currentPrice && (
             <div className="text-xl font-bold text-white">
@@ -1204,6 +1529,70 @@ export default function AnalysisPage() {
               <span>{ltpData.direction}</span>
             </div>
           )}
+          
+          {/* Indicators Button */}
+          <div className="relative" ref={indicatorsMenuRef}>
+            <button
+              onClick={() => setIsIndicatorsMenuOpen(!isIndicatorsMenuOpen)}
+              className={`flex items-center space-x-2 bg-gray-800/50 text-white px-3 py-2 rounded-lg border ${
+                indicators.some(ind => ind.enabled) 
+                  ? 'border-orange-500 animate-pulse-orange' 
+                  : 'border-gray-700'
+              } focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 transition-all duration-300`}
+            >
+              <BarChart2 className={`h-5 w-5 ${
+                indicators.some(ind => ind.enabled) ? 'text-orange-400' : 'text-gray-400'
+              }`} />
+              <span>Indicators</span>
+              {indicators.some(ind => ind.enabled) && (
+                <span className="flex h-2 w-2 relative">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+                </span>
+              )}
+            </button>
+            
+            {isIndicatorsMenuOpen && (
+              <div className="absolute right-0 z-50 mt-2 w-64 rounded-lg bg-gray-900 border border-gray-800 shadow-xl animate-slideIn origin-top-right">
+                <div className="p-3 border-b border-gray-800">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium text-white">Indicators</h3>
+                    <button 
+                      onClick={() => setIsIndicatorsMenuOpen(false)}
+                      className="text-gray-400 hover:text-white transition-colors duration-200"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="py-2">{indicators.map((indicator, index) => (
+                  <div 
+                    key={indicator.id}
+                    id={`indicator-${indicator.id}`}
+                    className={`flex items-center justify-between px-4 py-2 hover:bg-gray-800/50 transition-all duration-300 ${
+                      indicator.enabled ? 'bg-gray-800/30 border-l-2 border-orange-500' : ''
+                    }`}
+                  >
+                    <span className={`text-gray-300 transition-all duration-300 ${
+                      indicator.enabled ? 'text-white font-medium' : ''
+                    }`}>{indicator.name}</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={indicator.enabled}
+                        onChange={() => toggleIndicator(indicator.id)}
+                      />
+                      <div className="relative w-11 h-6 bg-gray-300 rounded-full transition-colors duration-300">
+                        <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transform transition-transform duration-300 ease-in-out ${indicator.enabled ? 'translate-x-5' : 'translate-x-0'}`}></span>
+                      </div>
+                    </label>
+                  </div>
+                ))}</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -24,7 +24,7 @@ const montserrat = Montserrat({
 })
 
 export const metadata: Metadata = {
-  title: "Daddy's AI - Financial Intelligence for Indian Stock Market",
+  title: "Daddy's AI - Financial Intelligence",
   description: 'AI-powered insights and analytics for Indian stock market investors',
   keywords: 'AI, stock market, financial intelligence, trading, investment, India, NSE, BSE',
   authors: [{ name: "Daddy's AI Team" }],

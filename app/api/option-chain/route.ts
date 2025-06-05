@@ -259,7 +259,6 @@ export async function GET(request: Request) {
             'Accept': 'application/json',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
             'Cache-Control': 'no-cache'
-
           }
         });
         
@@ -273,18 +272,23 @@ export async function GET(request: Request) {
         return NextResponse.json(transformedData);
       } catch (error) {
         console.error("Error fetching from Upstox API:", error);
-        // Fallback to simulated data if API call fails
-        console.log("Falling back to simulated data");
-        return NextResponse.json(generateMockData(instrumentKey, expiryDate));
+        // Return error instead of using simulated data
+        return NextResponse.json(
+          { error: 'Failed to fetch real-time option chain data', status: 'error' },
+          { status: 503 }
+        );
       }
     } else {
-      // For non-Nifty options, use simulated data
-      return NextResponse.json(generateMockData(instrumentKey, expiryDate));
+      // For non-Nifty options, return an error as we don't support them without real data
+      return NextResponse.json(
+        { error: 'Only NIFTY option chain is supported with real-time data', status: 'error' },
+        { status: 400 }
+      );
     }
   } catch (error) {
     console.error("Error in option chain API:", error);
     return NextResponse.json(
-      { error: 'Failed to fetch option chain data' },
+      { error: 'Failed to fetch option chain data', status: 'error' },
       { status: 500 }
     );
   }

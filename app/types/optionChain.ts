@@ -37,5 +37,6 @@ export interface OptionChainData {
 
 export interface OptionChainResponse {
   status: string;
-  data: OptionChainData[];
+  data?: OptionChainData[];
+  error?: string;
 } 
