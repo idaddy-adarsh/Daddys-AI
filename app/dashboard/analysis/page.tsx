@@ -465,7 +465,7 @@ export default function AnalysisPage() {
       }
       
       // API now handles expiry date selection automatically
-      console.log(`Fetching LTP data for symbol: ${symbol} (mapped to: ${ltpSymbol})`);
+      
       const response = await fetch(`/api/ltp-calculator?symbol=${ltpSymbol}`);
       
       // Handle response errors
@@ -477,11 +477,11 @@ export default function AnalysisPage() {
           try {
             // Try to parse error JSON if available
             const errorData = await response.json();
-            console.error(`Failed to fetch LTP data for ${ltpSymbol} (${status}):`, errorData);
+            
           } catch (parseError) {
             // If JSON parsing fails, get the error text
             const errorText = await response.text();
-            console.error(`Failed to fetch LTP data for ${ltpSymbol} (${status}): ${errorText}`);
+            
           }
         }
         
@@ -491,17 +491,17 @@ export default function AnalysisPage() {
 
       // Parse successful response
       const data = await response.json();
-      console.log(`LTP data received for ${ltpSymbol}:`, data);
+      
       
       // Check if we have valid data
       if (!data || !data.riskyResistance) {
-        console.warn(`Incomplete LTP data received for ${ltpSymbol}:`, data);
+        
       }
       
       setLtpData(data);
     } catch (error) {
       // Log the complete error object for better debugging
-      console.error(`Error in fetchLTPData for ${symbol}:`, error);
+      
       
       // Don't disrupt UI, continue without LTP data
       setLtpData(null);
@@ -658,7 +658,7 @@ export default function AnalysisPage() {
         return sortedData;
       });
     } catch (error) {
-      console.error('Error updating latest candle:', error);
+      
     }
   };
 
@@ -667,11 +667,11 @@ export default function AnalysisPage() {
       setIsLoading(true);
       try {
         // Fetch historical 5-minute candles
-        console.log(`Fetching data for symbol: ${symbol}`);
+        
         const marketResponse = await fetch(`/api/yahoo-finance/intraday?symbol=${symbol}&interval=5m&range=1d`);
         if (!marketResponse.ok) throw new Error('Failed to fetch data');
         const data = await marketResponse.json();
-        console.log(`Received ${data.length} data points from API`);
+        
         
         // Get current candle boundaries
         const { currentStartTime } = getCandleBoundaries();
@@ -682,7 +682,7 @@ export default function AnalysisPage() {
           return candleTime < currentStartTime && candleTime % 300 === 0;
         });
         
-        console.log(`After filtering, have ${historicalData.length} valid candles`);
+        
         
         // Sort historical data by time
         const sortedData = historicalData.sort((a: ChartData, b: ChartData) => Number(a.time) - Number(b.time));
@@ -691,9 +691,9 @@ export default function AnalysisPage() {
         
         // Fetch LTP data for all symbols - ensure this happens for every symbol
         await fetchLTPData();
-        console.log('LTP data fetched for symbol:', symbol);
+        
       } catch (error) {
-        console.error('Error fetching market data:', error);
+        
         setChartData([]);
         setLtpData(null);
       }
@@ -712,15 +712,15 @@ export default function AnalysisPage() {
 
   // Use layout effect for chart initialization to ensure DOM measurements are accurate
   useLayoutEffect(() => {
-    console.log(`useLayoutEffect triggered, chartData length: ${chartData.length}`);
+    
     if (!chartContainerRef.current) {
-      console.log('Chart container ref is not available');
+      
       return;
     }
 
     // Create chart if it doesn't exist
     if (!chartRef.current) {
-      console.log('Creating new chart instance (layout effect)');
+      
       const chartOptions: DeepPartial<ChartOptions> = {
         layout: {
           background: { 
@@ -820,7 +820,7 @@ export default function AnalysisPage() {
 
       try {
         chartRef.current = createChart(chartContainerRef.current, chartOptions);
-        console.log('Chart created successfully');
+        
         
         candlestickSeriesRef.current = chartRef.current.addCandlestickSeries({
           upColor: UP_COLOR,
@@ -839,11 +839,11 @@ export default function AnalysisPage() {
           priceLineColor: BORDER_COLOR,
           priceLineStyle: LineStyle.Solid,
         });
-        console.log('Candlestick series added successfully');
+        
 
         // If we already have data, set it immediately
         if (chartData.length > 0) {
-          console.log(`Setting initial chart data with ${chartData.length} points`);
+          
           const formattedData = chartData.map(item => ({
             ...item,
             time: Number(item.time) as Time
@@ -884,9 +884,9 @@ export default function AnalysisPage() {
             }
           });
           
-          console.log('Initial chart data set successfully');
+          
         } else {
-          console.log('No initial chart data available');
+          
         }
         
         // Add crosshair move handler for OHLC info card
@@ -929,13 +929,13 @@ export default function AnalysisPage() {
           }
         });
       } catch (error) {
-        console.error('Error creating chart:', error);
+        
       }
     } else {
-      console.log('Chart already exists, updating if needed');
+      
       // Update existing chart with new data if available
       if (chartData.length > 0 && candlestickSeriesRef.current) {
-        console.log(`Updating existing chart with ${chartData.length} data points`);
+        
         const formattedData = chartData.map(item => ({
           ...item,
           time: Number(item.time) as Time
@@ -1004,7 +1004,7 @@ export default function AnalysisPage() {
   useEffect(() => {
     if (!chartRef.current || !candlestickSeriesRef.current || chartData.length === 0) return;
     
-    console.log(`Updating chart with ${chartData.length} data points`);
+    
 
     // Update data
     const formattedData = chartData.map(item => ({
@@ -1134,7 +1134,7 @@ export default function AnalysisPage() {
             }
             candlestickSeriesRef.current._priceLines.push(priceLine);
           } catch (error) {
-            console.error(`Error creating price line for ${level.title}:`, error);
+            
           }
         }
       });

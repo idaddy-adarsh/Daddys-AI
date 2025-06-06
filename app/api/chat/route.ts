@@ -401,8 +401,8 @@ shifting :- When 2nd-highest % become highest then it is called shifting like ex
       ]
     };
 
-    console.log('Making request to:', endpoint);
-    console.log('Request payload:', JSON.stringify(requestPayload, null, 2));
+    
+    
 
     const response = await fetch(`${endpoint}?key=${GOOGLE_API_KEY}`, {
       method: 'POST',
@@ -412,11 +412,11 @@ shifting :- When 2nd-highest % become highest then it is called shifting like ex
       body: JSON.stringify(requestPayload)
     });
 
-    console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+    
+    
     
     const responseText = await response.text();
-    console.log('Raw response:', responseText);
+    
 
     if (!response.ok) {
       throw new Error(`API request failed with status ${response.status}: ${responseText}`);
@@ -429,26 +429,26 @@ shifting :- When 2nd-highest % become highest then it is called shifting like ex
       throw new Error(`Failed to parse API response as JSON: ${responseText}`);
     }
 
-    console.log('Parsed response data:', data);
+    
 
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      console.error('Invalid response format:', data);
+      
       throw new Error('Invalid response format from API');
     }
 
     return data.candidates[0].content.parts[0].text;
   } catch (error) {
-    console.error('Error in generateChatResponse:', error);
+    
     throw error;
   }
 }
 
 export async function POST(request: Request) {
   try {
-    console.log('Received POST request');
+    
     
     const body = await request.json();
-    console.log('Request body:', JSON.stringify(body, null, 2));
+    
     
     const { messages, systemPrompt } = body;
 
@@ -464,25 +464,18 @@ export async function POST(request: Request) {
       throw new Error('System prompt must be a string');
     }
 
-    console.log('Processing request with:', {
-      messageCount: messages.length,
-      systemPromptLength: systemPrompt.length
-    });
+    
 
     const responseContent = await generateChatResponse(messages, systemPrompt);
 
-    console.log('Successfully generated response');
+    
 
     return NextResponse.json({
       message: responseContent
     });
 
   } catch (error: any) {
-    console.error("The request encountered an error:", {
-      name: error?.name,
-      message: error?.message,
-      stack: error?.stack
-    });
+    
     
     return NextResponse.json(
       { 

@@ -92,7 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           body: notification.message,
         });
       } catch (error) {
-        console.error('Error showing notification:', error);
+        
       }
     }
   };

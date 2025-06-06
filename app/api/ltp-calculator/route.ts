@@ -82,7 +82,7 @@ async function fetchExpiryDates(symbol: string): Promise<string[]> {
   // Check cache first
   const now = Date.now();
   if (expiryCache[symbol] && (now - expiryCache[symbol].timestamp) < CACHE_TTL) {
-    console.log(`Using cached expiry dates for ${symbol}`);
+    
     return expiryCache[symbol].dates;
   }
   
@@ -95,7 +95,7 @@ async function fetchExpiryDates(symbol: string): Promise<string[]> {
     );
     
     const url = `https://login.ltpcalculator.com/optionChain/symbol-expiry?symbol=${symbol}`;
-    console.log(`Fetching expiry dates for ${symbol} from: ${url}`);
+    
     
     const response = await fetch(url, {
       method: "GET",
@@ -104,7 +104,7 @@ async function fetchExpiryDates(symbol: string): Promise<string[]> {
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Error fetching expiry dates (${response.status}): ${errorText}`);
+      
       return [];
     }
     
@@ -119,7 +119,7 @@ async function fetchExpiryDates(symbol: string): Promise<string[]> {
     
     return dates;
   } catch (error) {
-    console.error(`Error fetching expiry dates for ${symbol}:`, error);
+    
     return [];
   }
 }
@@ -236,7 +236,7 @@ export async function GET(request: Request) {
     // If expiryDate is provided, convert it from YYYY-MM-DD to DD-MM-YYYY format
     if (expiryDate) {
       expiry = formatDateForLTP(expiryDate);
-      console.log(`Using provided expiry date: ${expiryDate} (formatted as ${expiry})`);
+      
     }
     // If no expiry is specified, fetch available expiry dates and choose the nearest one
     else if (!expiry) {
@@ -247,7 +247,7 @@ export async function GET(request: Request) {
         // For NIFTY, prefer weekly expiry
         const preferWeekly = symbol === 'NIFTY';
         expiry = findNearestExpiry(expiryDates, preferWeekly);
-        console.log(`Using ${preferWeekly ? 'weekly' : 'monthly'} expiry for ${symbol}: ${expiry}`);
+        
       } else {
         // Fallback to default methods if API fetch fails
         if (symbol === 'NIFTY') {
@@ -274,11 +274,11 @@ export async function GET(request: Request) {
           const year = nextThursday.getFullYear();
           
           expiry = `${day}-${month}-${year}`;
-          console.log(`Using fallback weekly expiry for NIFTY: ${expiry}`);
+          
         } else {
           // For all other symbols, use the last Thursday of the month
           expiry = getLastThursdayOfMonth();
-          console.log(`Using fallback monthly expiry for ${symbol}: ${expiry}`);
+          
         }
       }
     }
@@ -297,7 +297,7 @@ export async function GET(request: Request) {
     lastRequestTime = now;
 
     const url = `https://login.ltpcalculator.com/optionChain/fetch-data?symbol=${mappedSymbol}&expiry=${expiry}&lotSize=${lotSize}`;
-    console.log(`Fetching LTP data for ${symbol} (mapped to ${mappedSymbol}) with expiry ${expiry} from: ${url}`);
+    
 
     // Set up authentication headers
     const headers = new Headers();
@@ -323,7 +323,7 @@ export async function GET(request: Request) {
       
       if (!retryResponse.ok) {
         const errorText = await retryResponse.text();
-        console.error(`LTP API error for ${symbol} (${retryResponse.status}): ${errorText}`);
+        
         
         // Return a more informative error response
         return NextResponse.json({
@@ -343,7 +343,7 @@ export async function GET(request: Request) {
     // Handle other error responses
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`LTP API error for ${symbol} (${response.status}): ${errorText}`);
+      
       
       // Return a more informative error response
       return NextResponse.json({
@@ -361,7 +361,7 @@ export async function GET(request: Request) {
     return formatResponse(data, symbol);
   } catch (error) {
     // Handle any unexpected errors
-    console.error(`Error in LTP Calculator API route for ${symbol}:`, error);
+    
     return NextResponse.json(
       { 
         error: 'Unexpected error in LTP Calculator API route',
@@ -379,7 +379,7 @@ function formatResponse(data: any, symbol: string) {
   try {
     // Check if the expected data structure exists
     if (!data || !data.symbolMarketDirection) {
-      console.error(`Invalid response structure for ${symbol} - missing symbolMarketDirection:`, data);
+      
       return NextResponse.json({
         error: 'Invalid response structure from LTP Calculator API - missing symbolMarketDirection',
         symbol: symbol
@@ -387,7 +387,7 @@ function formatResponse(data: any, symbol: string) {
     }
 
     if (!data.symbolMarketDirection.reversalModel) {
-      console.error(`Invalid response structure for ${symbol} - missing reversalModel:`, data);
+      
       return NextResponse.json({
         error: 'Invalid response structure from LTP Calculator API - missing reversalModel',
         symbol: symbol
@@ -414,11 +414,11 @@ function formatResponse(data: any, symbol: string) {
       symbol: symbol // Include the symbol in the response
     };
     
-    console.log(`Formatted LTP data for ${symbol}:`, result);
+    
     return NextResponse.json(result);
   } catch (error) {
-    console.error(`Error formatting LTP Calculator response for ${symbol}:`, error);
-    console.error('Raw data received:', data);
+    
+    
     return NextResponse.json({
       error: 'Error formatting LTP Calculator response',
       message: error instanceof Error ? error.message : 'Unknown error',

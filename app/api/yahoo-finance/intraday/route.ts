@@ -46,7 +46,7 @@ async function fetchIntradayData(symbol: string, interval: string = '5m', range:
       item.close != null
     );
   } catch (error) {
-    console.error('Error fetching intraday data:', error);
+    
     throw new Error('Failed to fetch or process intraday data');
   }
 }

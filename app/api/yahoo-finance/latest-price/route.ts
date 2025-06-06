@@ -21,7 +21,7 @@ export async function GET(request: Request) {
       price: quote.regularMarketPrice,
     });
   } catch (error) {
-    console.error('Error fetching latest price:', error);
+    
     return NextResponse.json({ error: 'Failed to fetch latest price' }, { status: 500 });
   }
 } 

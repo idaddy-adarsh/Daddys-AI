@@ -86,7 +86,7 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
           setActualSpotPrice(newPrice);
         }
       } catch (error) {
-        console.error('Error fetching live price:', error);
+        
       }
     };
     
@@ -188,7 +188,7 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
           throw new Error('Invalid data format received from API');
         }
       } catch (error) {
-        console.error('Error fetching option chain:', error);
+        
         // Set error for user
         if (error instanceof Error) {
           setError(`${error.message}. Only real-time market data is used (no simulated data).`);
@@ -368,7 +368,7 @@ export default function OptionChain({ spotPrice, onStrikeSelect }: OptionChainPr
                   setIsLoading(false);
                 })
                 .catch(err => {
-                  console.error(err);
+                  
                   setIsLoading(false);
                   setError('Failed to refresh option chain data. Only real-time market data is used (no simulated data).');
                 });

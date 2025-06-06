@@ -7,6 +7,10 @@ import Link from 'next/link';
 import { ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, BarChart4, DollarSign, Activity, Plus, Minus, RefreshCw, Search, ChevronDown, X, Check, AlertCircle, Copy, Eye, EyeOff, Clock, Calendar, User, Percent, LineChart, CandlestickChart, Bot } from 'lucide-react';
 import OptionChain from '@/app/components/OptionChain';
 import { ComingSoonModal } from '@/app/components/ComingSoonModal';
+import axios from 'axios';
+import { Trade } from '@/app/models/Trade';
+// Import the TradeHistory component
+import TradeHistory from '@/app/components/TradeHistory';
 
 // Add trade type selection modal state
 interface TradingMode {
@@ -29,25 +33,6 @@ interface Asset {
   lotSize?: number;
 }
 
-interface Trade {
-  id: string;
-  type: 'buy' | 'sell';
-  asset: string;
-  amount: number;
-  price: number;
-  timestamp: string;
-  orderType: 'market' | 'limit' | 'stop' | 'stoplimit';
-  status: 'executed' | 'pending' | 'cancelled' | 'completed' | 'partially_completed';
-  completedWith?: string;
-  remainingAmount?: number;
-  originalAmount?: number;
-  lotSize?: number;
-  isOption?: boolean;
-  strikePrice?: number;
-  optionType?: 'CE' | 'PE';
-  premium?: number;
-}
-
 interface MarketIndex {
   name: string;
   value: number;
@@ -67,6 +52,7 @@ export default function PortfolioPage() {
   
   // Add state for trading mode selection
   const [showTradingModeModal, setShowTradingModeModal] = useState(true);
+  const [showTradeHistory, setShowTradeHistory] = useState(false);
   const [tradingMode, setTradingMode] = useState<'real' | 'virtual'>('virtual');
   const [showRealTradeNotice, setShowRealTradeNotice] = useState(false);
   
@@ -84,9 +70,9 @@ export default function PortfolioPage() {
 
   // Remove localStorage effect
   useEffect(() => {
-    console.log('Trades updated:', recentTrades);
-    console.log('Assets updated:', assets);
-    console.log('Margin updated:', marginDetails);
+    
+    
+    
   }, [recentTrades, assets, marginDetails]);
 
   // Market data state
@@ -126,6 +112,62 @@ export default function PortfolioPage() {
   const algoIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showComingSoonModal, setShowComingSoonModal] = useState(false);
   const [comingSoonFeature, setComingSoonFeature] = useState('');
+
+  // Add state for loading trades from database
+  const [isLoadingTrades, setIsLoadingTrades] = useState(false);
+  
+  // Fetch user's trades from MongoDB when component mounts
+  useEffect(() => {
+    const fetchUserTrades = async () => {
+      if (!user?.id) return;
+      
+      try {
+        setIsLoadingTrades(true);
+        const response = await axios.get(`/api/trades?userId=${user.id}`);
+        if (response.data && Array.isArray(response.data.trades)) {
+          setRecentTrades(response.data.trades);
+        }
+      } catch (error) {
+        
+      } finally {
+        setIsLoadingTrades(false);
+      }
+    };
+    
+    fetchUserTrades();
+  }, [user?.id]);
+  
+  // Save trade to MongoDB
+  const saveTrade = async (trade: Trade) => {
+    if (!user?.id) return;
+    
+    try {
+      // Add userId to the trade
+      const tradeWithUserId = {
+        ...trade,
+        userId: user.id
+      };
+      
+      // Save to MongoDB
+      await axios.post('/api/trades', tradeWithUserId);
+    } catch (error) {
+      
+    }
+  };
+  
+  // Update trade in MongoDB
+  const updateTrade = async (tradeId: string, updates: Partial<Trade>) => {
+    if (!user?.id) return;
+    
+    try {
+      await axios.put(`/api/trades/${tradeId}`, {
+        ...updates,
+        userId: user.id
+      });
+    } catch (error) {
+      
+    }
+  };
 
   // Define market symbols and their Yahoo Finance symbols
   const marketSymbols = {
@@ -173,7 +215,7 @@ export default function PortfolioPage() {
         shortName: meta.shortName
       };
     } catch (error) {
-      console.error(`Error fetching data for ${symbol}:`, error);
+      
       return null;
     }
   };
@@ -203,7 +245,7 @@ export default function PortfolioPage() {
               };
             }
           } catch (error) {
-            console.error(`Error processing stock ${stock.symbol}:`, error);
+            
           }
           return null;
         })
@@ -232,7 +274,7 @@ export default function PortfolioPage() {
                 };
               }
             } catch (error) {
-              console.error(`Error processing index ${index.symbol}:`, error);
+              
             }
             return null;
           })
@@ -251,7 +293,7 @@ export default function PortfolioPage() {
         return [...validStocksData, ...validIndicesData, ...existingOptions];
       });
     } catch (error) {
-      console.error('Error updating market data:', error);
+      
     } finally {
       setIsUpdating(false);
     }
@@ -267,7 +309,7 @@ export default function PortfolioPage() {
       try {
         await updateMarketData();
       } catch (error) {
-        console.error('Error updating market data:', error);
+        
       }
     }, 1000); // Update every second
 
@@ -295,7 +337,7 @@ export default function PortfolioPage() {
         }
       }
     } catch (error) {
-      console.error('Error initializing watchlist:', error);
+      
     }
   }, [assets]);
 
@@ -312,39 +354,142 @@ export default function PortfolioPage() {
         return;
       }
 
+      // First, organize trades by asset and match buy/sell pairs
+      const tradesByAsset: Record<string, Trade[]> = {};
+      
+      // Group trades by asset
       recentTrades.forEach(trade => {
-        if (!trade) return;
+        if (!trade || !trade.asset) return;
         
-        const asset = assets.find(a => a && a.symbol === trade.asset);
+        if (!tradesByAsset[trade.asset]) {
+          tradesByAsset[trade.asset] = [];
+        }
+        tradesByAsset[trade.asset].push(trade);
+      });
+      
+      // Calculate P&L for each asset
+      Object.keys(tradesByAsset).forEach(assetSymbol => {
+        const assetTrades = tradesByAsset[assetSymbol];
+        const asset = assets.find(a => a && a.symbol === assetSymbol);
         if (!asset) return;
 
+        // For active trades (not matched with a closing trade)
+        const activeTrades = assetTrades.filter((t: Trade) => 
+          t.status !== 'completed' && !t.completedWith && (t.remainingAmount || t.amount) > 0
+        );
+        
+        // For completed trades (matched buy/sell pairs)
+        const completedTrades = assetTrades.filter((t: Trade) => 
+          t.completedWith && t.status === 'completed'
+        );
+        
+        // Calculate unrealized P&L for active trades
+        activeTrades.forEach((trade: Trade) => {
         // Safely access properties with fallbacks
         const activeAmount = trade.remainingAmount || trade.amount || 0;
         const assetValue = typeof asset.value === 'number' && !isNaN(asset.value) ? asset.value : 0;
         const tradePrice = typeof trade.price === 'number' && !isNaN(trade.price) ? trade.price : 0;
         const lotSize = trade.lotSize || 1;
         
-        // Calculate values safely
-        const currentValue = activeAmount * assetValue * (trade.isOption ? lotSize : 1);
-        const costBasis = activeAmount * tradePrice * (trade.isOption ? lotSize : 1);
+          // For options, calculate using premium difference
+          if (trade.isOption) {
+            // For active options, calculate unrealized P&L based on current premium vs entry premium
+            const premiumDiffActive = trade.type === 'buy' ? 
+              (assetValue - tradePrice) : 
+              (tradePrice - assetValue);
+            
+            // Calculate number of lots
+            const numLotsActive = activeAmount / lotSize;
+            
+            // P&L = premium difference × lot size × number of lots
+            const tradePnL = premiumDiffActive * lotSize * numLotsActive;
+            
+            totalProfit += tradePnL;
+            
+            // Add to day's P&L if trade was made today
+            if (trade.timestamp && new Date(trade.timestamp).toDateString() === today) {
+              dayProfit += tradePnL;
+            }
+          } else {
+            // For stocks, calculate normally
+            const currentValue = activeAmount * assetValue;
+            const costBasis = activeAmount * tradePrice;
         const tradePnL = trade.type === 'buy' ? currentValue - costBasis : costBasis - currentValue;
         
         totalProfit += tradePnL;
         
-        // Calculate day's P&L
-        try {
+            // Add to day's P&L if trade was made today
           if (trade.timestamp && new Date(trade.timestamp).toDateString() === today) {
             dayProfit += tradePnL;
           }
-        } catch (e) {
-          console.error('Error calculating day P&L:', e);
-        }
+          }
+        });
+        
+        // Calculate realized P&L for completed trades
+        completedTrades.forEach((trade: Trade) => {
+          // Find the matching trade that closed this position
+          const matchingTrade = assetTrades.find((t: Trade) => t.id === trade.completedWith);
+          if (!matchingTrade) return;
+          
+          // For options, calculate using premium difference between buy and sell
+          if (trade.isOption) {
+            const buyTrade = trade.type === 'buy' ? trade : matchingTrade;
+            const sellTrade = trade.type === 'sell' ? trade : matchingTrade;
+            
+            // Get premiums
+            const buyPremium = buyTrade.price || 0;
+            const sellPremium = sellTrade.price || 0;
+            
+            // Calculate premium difference
+            const premiumDiffCompleted = sellPremium - buyPremium;
+            
+            // Get lot size and number of contracts
+            const lotSize = trade.lotSize || 1;
+            const contracts = Math.min(
+              trade.originalAmount || trade.amount || 0,
+              matchingTrade.originalAmount || matchingTrade.amount || 0
+            );
+            
+            // Calculate number of lots
+            const numLotsCompleted = contracts / lotSize;
+            
+            // P&L = premium difference × lot size × number of lots
+            const tradePnL = premiumDiffCompleted * lotSize * numLotsCompleted;
+            
+            totalProfit += tradePnL;
+            
+            // Add to day's P&L if trade was completed today
+            if (trade.completedAt && new Date(trade.completedAt).toDateString() === today) {
+              dayProfit += tradePnL;
+            }
+          } else {
+            // For stocks, calculate normally
+            const buyTrade = trade.type === 'buy' ? trade : matchingTrade;
+            const sellTrade = trade.type === 'sell' ? trade : matchingTrade;
+            
+            const buyPrice = buyTrade.price || 0;
+            const sellPrice = sellTrade.price || 0;
+            const amount = Math.min(
+              trade.originalAmount || trade.amount || 0,
+              matchingTrade.originalAmount || matchingTrade.amount || 0
+            );
+            
+            const tradePnL = (sellPrice - buyPrice) * amount;
+            
+            totalProfit += tradePnL;
+            
+            // Add to day's P&L if trade was completed today
+            if (trade.completedAt && new Date(trade.completedAt).toDateString() === today) {
+              dayProfit += tradePnL;
+            }
+          }
+        });
       });
 
       setTotalPnL(totalProfit);
       setDayPnL(dayProfit);
     } catch (error) {
-      console.error('Error calculating P&L:', error);
+      
       // Set defaults on error
       setTotalPnL(0);
       setDayPnL(0);
@@ -486,18 +631,18 @@ export default function PortfolioPage() {
                   });
                 });
               } else {
-                console.error('Invalid data format received from API');
+                
                 // Don't update with fake data, just keep existing data
               }
             })
             .catch(err => {
-              console.error('Error fetching option data:', err);
+              
               // Don't update with fake data, just keep existing data
             });
         }
       }
     } catch (error) {
-      console.error('Error in safeUpdateOptionPrices:', error);
+      
       // Don't update with fake data, just keep existing data
     }
   }, [assets]);
@@ -525,7 +670,7 @@ export default function PortfolioPage() {
         }
       };
     } catch (error) {
-      console.error('Error setting up option price updates:', error);
+      
     }
   }, [safeUpdateOptionPrices]);
 
@@ -550,7 +695,15 @@ export default function PortfolioPage() {
     // If no trade or asset, do nothing
     if (!trade) return;
     const asset = assets.find(a => a && a.symbol === trade.asset);
-    if (!asset) return;
+    if (!asset || !asset.symbol) return; // Add check for asset.symbol
+    
+    // Ensure user ID is available
+    if (!user?.id) {
+      
+      setTradeMessage('Error: User authentication required');
+      setShowTradeSuccess(true);
+      return;
+    }
     
     // Create an exit trade with opposite type
     const exitType = trade.type === 'buy' ? 'sell' : 'buy';
@@ -561,7 +714,7 @@ export default function PortfolioPage() {
     const exitTrade: Trade = {
       id: String(Date.now()),
       type: exitType,
-      asset: trade.asset,
+      asset: asset.symbol, // Use asset.symbol directly since we've checked it's not undefined
       amount: exitAmount,
       price: currentPrice,
       timestamp: new Date().toISOString(),
@@ -573,24 +726,25 @@ export default function PortfolioPage() {
       strikePrice: trade.strikePrice,
       optionType: trade.optionType,
       premium: trade.isOption ? currentPrice : undefined,
-      completedWith: trade.id
+      completedWith: trade.id,
+      userId: user.id // Use user.id directly
     };
-    
-    // Calculate values for margin update
-    const isOption = trade.isOption;
-    const lotSize = trade.lotSize || 75; // Default to 75 if lotSize is not defined
-    // For options, we just need the amount * price, without multiplying by lotSize again
-    const tradeValue = exitAmount * currentPrice;
     
     // Update the original trade status
     const updatedTrades = recentTrades.map(t => {
       if (t.id === trade.id) {
         // Create a new trade object with the updated status
-        return {
+        const updatedTrade = {
           ...t,
           status: 'completed' as const,
-          completedWith: exitTrade.id
+          completedWith: exitTrade.id,
+          completedAt: new Date().toISOString() // Add completion timestamp
         };
+        
+        // Update the trade in MongoDB
+        updateTrade(t.id, updatedTrade);
+        
+        return updatedTrade;
       }
       return t;
     }) as Trade[]; // Cast to Trade[] to ensure type safety
@@ -598,7 +752,44 @@ export default function PortfolioPage() {
     // Add the exit trade
     const newTrades = [exitTrade, ...updatedTrades];
     
-    // Calculate updated margin
+    // Save the exit trade to MongoDB
+    saveTrade(exitTrade);
+    
+    // Calculate P&L for this closed position
+    let pnl = 0;
+    let pnlText = '';
+    
+    if (trade.isOption) {
+      // For options: P&L = premium difference × lot size × number of lots
+      const buyTrade = trade.type === 'buy' ? trade : exitTrade;
+      const sellTrade = trade.type === 'sell' ? trade : exitTrade;
+      
+      const buyPremium = buyTrade.price;
+      const sellPremium = sellTrade.price;
+      const premiumDiffClosed = sellPremium - buyPremium;
+      
+      const lotSizeCalc = trade.lotSize || 75; // Default to 75 if lotSize is not defined
+      const numLotsClosed = exitAmount / lotSizeCalc;
+      
+      pnl = premiumDiffClosed * lotSizeCalc * numLotsClosed;
+      
+      pnlText = ` with P&L: ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)} (${premiumDiffClosed >= 0 ? '+' : ''}₹${premiumDiffClosed.toFixed(2)} × ${lotSizeCalc} × ${numLotsClosed})`;
+    } else {
+      // For stocks: P&L = (sell price - buy price) × quantity
+      const buyPrice = trade.type === 'buy' ? trade.price : currentPrice;
+      const sellPrice = trade.type === 'sell' ? trade.price : currentPrice;
+      
+      pnl = (sellPrice - buyPrice) * exitAmount;
+      pnlText = ` with P&L: ${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}`;
+    }
+    
+    // Calculate values for margin update
+    const isOption = trade.isOption;
+    const lotSize = trade.lotSize || 75; // Default to 75 if lotSize is not defined
+    // For options, we just need the amount * price, without multiplying by lotSize again
+    const tradeValue = exitAmount * currentPrice;
+    
+    // Update margin
     const updatedMargin = {
       ...marginDetails,
       availableMargin: exitType === 'buy' ? 
@@ -622,7 +813,7 @@ export default function PortfolioPage() {
       ` for ₹${(exitAmount * currentPrice).toLocaleString()}` :
       ` for ₹${(exitAmount * currentPrice).toLocaleString()}`;
       
-    setTradeMessage(`Position closed: ${exitType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${asset.name} at ₹${currentPrice}${totalCostText}`);
+    setTradeMessage(`Position closed: ${exitType === 'buy' ? 'Bought' : 'Sold'} ${quantityText} of ${asset.name} at ₹${currentPrice}${totalCostText}${pnlText}`);
     setShowTradeSuccess(true);
     setTimeout(() => setShowTradeSuccess(false), 5000);
 
@@ -636,14 +827,26 @@ export default function PortfolioPage() {
     setOrderType('market');
   };
 
-  const handleNiftyTrade = (index: Asset, tradeType: 'buy' | 'sell') => {
+  // Function to handle Nifty option trading - only allow for indices, not stocks like Reliance
+  const handleNiftyTrade = (asset: Asset, tradeType: 'buy' | 'sell') => {
+    // Only allow option trading for indices, not for stocks like Reliance
+    if (asset.type === 'index') {
     setShowOptionChain(true);
+    } else {
+      // For stocks, just use regular trading
+      setSelectedAsset(asset);
+      setTradeType(tradeType);
+      if (asset.lotSize) {
+        setTradeAmount(asset.lotSize.toString());
+      }
+      setShowTradeModal(true);
+    }
   };
 
   // Add useEffect for debugging
   useEffect(() => {
-    console.log('Current Trades:', recentTrades);
-    console.log('Current Assets:', assets);
+    
+    
   }, [recentTrades, assets]);
 
   // Add this debugging effect
@@ -652,20 +855,28 @@ export default function PortfolioPage() {
     const activeTrades = recentTrades.filter(trade => 
       trade.status === 'executed' || trade.status === 'partially_completed'
     );
-    console.log('Active trades that should be displayed:', activeTrades);
+    
     
     // Check if assets exist for trades
     const missingAssets = activeTrades.filter(trade => 
       !assets.find(a => a.symbol === trade.asset)
     );
     if (missingAssets.length > 0) {
-      console.warn('Trades with missing assets:', missingAssets);
+      
     }
   }, [recentTrades, assets]);
 
   // Update the handleTrade function to check for matching trades
   const handleTrade = () => {
     if (!selectedAsset || !tradeAmount) return;
+    
+    // Ensure user ID is available
+    if (!user?.id) {
+      
+      setTradeMessage('Error: User authentication required');
+      setShowTradeSuccess(true);
+      return;
+    }
 
     const newTradeAmount = parseFloat(tradeAmount);
     
@@ -677,7 +888,9 @@ export default function PortfolioPage() {
     }
 
     // For options and indices, validate lot size
-    const isOption = selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE');
+    const isOption = selectedAsset.type === 'options' || 
+      (typeof selectedAsset.symbol === 'string' && (selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')));
+    
     if (isOption) {
       const lotSize = selectedAsset.lotSize || 75;
       if (newTradeAmount % lotSize !== 0) {
@@ -764,7 +977,8 @@ export default function PortfolioPage() {
       isOption: isOption,
       strikePrice: isOption ? parseInt(selectedAsset.symbol.match(/\d+/)?.[0] || '0') : undefined,
       optionType: selectedAsset.symbol.includes('CE') ? 'CE' : selectedAsset.symbol.includes('PE') ? 'PE' : undefined,
-      premium: isOption ? tradePrice : undefined
+      premium: isOption ? tradePrice : undefined,
+      userId: user.id // Use user.id directly
     };
 
     // Update matched trades
@@ -774,18 +988,27 @@ export default function PortfolioPage() {
         const currentRemaining = trade.remainingAmount || trade.amount;
         const newRemaining = currentRemaining - match.matchedAmount;
         
-        return {
+        const updatedTrade = {
           ...trade,
           status: newRemaining <= 0 ? 'completed' as const : 'partially_completed' as const,
           remainingAmount: newRemaining > 0 ? newRemaining : undefined,
-          completedWith: newTrade.id
+          completedWith: newTrade.id,
+          completedAt: newRemaining <= 0 ? new Date().toISOString() : undefined // Add completion timestamp
         } as Trade;
+        
+        // Update the trade in MongoDB
+        updateTrade(trade.id, updatedTrade);
+        
+        return updatedTrade;
       }
       return trade;
     });
 
     // Add the new trade
     const finalTrades = [newTrade, ...updatedTrades] as Trade[];
+
+    // Save the new trade to MongoDB
+    saveTrade(newTrade);
 
     // Update margin based on remaining amount
     const marginAdjustment = remainingAmount * tradePrice;
@@ -845,11 +1068,11 @@ export default function PortfolioPage() {
       }
       
       const data = await response.json();
-      console.log('LTP Calculator data:', data);
+      
       setLtpData(data);
       return data;
     } catch (error) {
-      console.error('Error fetching LTP data:', error);
+      
       setAlgoStatus('error');
       return null;
     }
@@ -863,12 +1086,13 @@ export default function PortfolioPage() {
   } => {
     if (!data) return { shouldTrade: false };
     
-    const currentPrice = assets.find(a => 
-      a.symbol === '^NSEI' || 
-      a.symbol === selectedInstrument?.toUpperCase()
-    )?.value;
+    const asset = assets.find(a => 
+      a && a.symbol && (a.symbol === '^NSEI' || a.symbol === selectedInstrument?.toUpperCase())
+    );
     
-    if (!currentPrice) return { shouldTrade: false };
+    if (!asset || !asset.value) return { shouldTrade: false };
+    
+    const currentPrice = asset.value;
     
     const moderateSupport = data.moderateSupport;
     const moderateResistance = data.moderateResistance;
@@ -989,15 +1213,20 @@ export default function PortfolioPage() {
   // Function to execute an algorithmic trade
   const executeAlgoTrade = useCallback(async (optionType: 'CE' | 'PE', reason: string) => {
     try {
+      // Ensure user ID is available
+      if (!user?.id) {
+        
+        return false;
+      }
+      
       // Find the current price of the selected instrument
       const asset = assets.find(a => 
-        a.symbol === '^NSEI' || 
-        a.symbol === selectedInstrument?.toUpperCase()
+        a && a.symbol && (a.symbol === '^NSEI' || a.symbol === selectedInstrument?.toUpperCase())
       );
       
-      if (!asset) {
-        console.error('Asset not found for algo trading');
-        return;
+      if (!asset || !asset.symbol) { // Add check for asset.symbol
+        
+        return false;
       }
       
       const currentPrice = asset.value;
@@ -1055,11 +1284,15 @@ export default function PortfolioPage() {
         isOption: true,
         strikePrice: strikePrice,
         optionType: optionType,
-        premium: Math.max(10, premium)
+        premium: Math.max(10, premium),
+        userId: user.id // Use user.id directly
       };
       
       // Add the trade
       setRecentTrades(prevTrades => [trade, ...prevTrades]);
+      
+      // Save the algo trade to MongoDB
+      saveTrade(trade);
       
       // Show success message
       setTradeMessage(`Algo Trade: Bought ${tradeAmount} contracts (${algoParameters.lotSize} lots) of ${optionSymbol} at ₹${Math.max(10, premium).toFixed(2)} | Reason: ${reason} | Target: ${target.toFixed(2)}, SL: ${stopLoss.toFixed(2)}`);
@@ -1068,10 +1301,10 @@ export default function PortfolioPage() {
       
       return true;
     } catch (error) {
-      console.error('Error executing algo trade:', error);
+      
       return false;
     }
-  }, [assets, algoParameters, selectedInstrument, findInTheMoneyStrike]);
+  }, [assets, algoParameters, selectedInstrument, findInTheMoneyStrike, user?.id, saveTrade]);
 
   // Function to run the algorithm trading logic
   const runAlgoTrading = useCallback(async () => {
@@ -1079,7 +1312,7 @@ export default function PortfolioPage() {
     
     // Only allow algorithm trading for NIFTY and not Highly Risky
     if (selectedInstrument !== 'nifty' || selectedRiskLevel === 'highlyRisky') {
-      console.log('Algorithm trading is only available for NIFTY with Moderate or Risky risk levels');
+      
       setAlgoParameters({
         ...algoParameters,
         isActive: false
@@ -1104,7 +1337,7 @@ export default function PortfolioPage() {
         await executeAlgoTrade(optionType as 'CE' | 'PE', reason);
       }
     } catch (error) {
-      console.error('Error in algo trading:', error);
+      
       setAlgoStatus('error');
     }
   }, [selectedInstrument, algoParameters.isActive, selectedRiskLevel, fetchLtpData, shouldTakeTrade, executeAlgoTrade]);
@@ -1125,14 +1358,14 @@ export default function PortfolioPage() {
       algoIntervalRef.current = setInterval(runAlgoTrading, 30000);
       setAlgoStatus('running');
       
-      console.log(`Algorithm trading started for ${selectedInstrument} with ${selectedRiskLevel} risk level`);
+      
     } else {
       // Clear the interval if algo is not active
       if (algoIntervalRef.current) {
         clearInterval(algoIntervalRef.current);
         algoIntervalRef.current = null;
         setAlgoStatus('idle');
-        console.log('Algorithm trading stopped');
+        
       }
     }
     
@@ -1242,6 +1475,12 @@ export default function PortfolioPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Trade History Modal */}
+        <TradeHistory 
+          isOpen={showTradeHistory} 
+          onClose={() => setShowTradeHistory(false)} 
+        />
 
         {/* Algorithmic Trading Modal */}
         <AnimatePresence>
@@ -1803,18 +2042,35 @@ export default function PortfolioPage() {
                       
                       // Skip if asset not found
                       if (!asset) {
-                        console.warn(`Asset not found for trade ${trade.id}: ${trade.asset}`);
+                        
                         return null;
                       }
                       
                       const activeAmount = trade.remainingAmount || trade.amount;
                       const lotSize = trade.lotSize || 1;
-                      const totalValue = trade.isOption ? 
-                        activeAmount * trade.price * lotSize :
-                        activeAmount * trade.price;
-                      const currentValue = activeAmount * asset.value * (trade.isOption ? lotSize : 1);
-                      const pnl = trade.type === 'buy' ? currentValue - totalValue : totalValue - currentValue;
-                      const pnlPercent = totalValue > 0 ? (pnl / totalValue) * 100 : 0;
+                      
+                      // Calculate P&L differently for options vs stocks
+                      let pnl = 0;
+                      let pnlPercent = 0;
+                      
+                      if (trade.isOption) {
+                        // For options: P&L = premium difference × lot size × number of lots
+                        const entryPremium = trade.price;
+                        const currentPremium = asset.value;
+                        const premiumDiff = trade.type === 'buy' ? 
+                          (currentPremium - entryPremium) : 
+                          (entryPremium - currentPremium);
+                        const numLots = activeAmount / lotSize;
+                        
+                        pnl = premiumDiff * lotSize * numLots;
+                        pnlPercent = entryPremium > 0 ? (premiumDiff / entryPremium) * 100 : 0;
+                      } else {
+                        // For stocks: normal calculation
+                        const totalValue = activeAmount * trade.price;
+                        const currentValue = activeAmount * asset.value;
+                        pnl = trade.type === 'buy' ? currentValue - totalValue : totalValue - currentValue;
+                        pnlPercent = totalValue > 0 ? (pnl / totalValue) * 100 : 0;
+                      }
 
                       return (
                         <div key={trade.id} className="bg-gray-800/50 rounded-xl p-4">
@@ -1873,6 +2129,17 @@ export default function PortfolioPage() {
                                 <span className="text-white ml-2">₹{asset.value.toFixed(2)}</span>
                               </div>
                             </div>
+                            {trade.isOption && (
+                              <div className="text-xs text-gray-400 mt-2">
+                                <span>P&L = (Premium diff) × Lot size × Lots = </span>
+                                <span className={pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                                  ({trade.type === 'buy' ? 
+                                    `${asset.value.toFixed(2)} - ${trade.price.toFixed(2)}` : 
+                                    `${trade.price.toFixed(2)} - ${asset.value.toFixed(2)}`
+                                  } × {lotSize} × {(activeAmount/lotSize).toFixed(2)})
+                                </span>
+                              </div>
+                            )}
                             <div className="flex justify-end space-x-2 mt-3">
                               <button
                                 onClick={() => exitPosition(trade)}
@@ -2067,7 +2334,7 @@ export default function PortfolioPage() {
                         {Math.abs(item.change24h).toFixed(2)}%
                       </div>
                       <div className="flex items-center justify-end space-x-2 mt-2">
-                        {item.symbol === '^NSEI' ? (
+                        {item.type === 'index' ? (
                           <>
                             <button
                               onClick={() => handleNiftyTrade(item, 'buy')}
@@ -2137,13 +2404,26 @@ export default function PortfolioPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold text-white">Transaction History</h2>
             <div className="flex items-center space-x-2">
-              <button className="text-gray-400 hover:text-white flex items-center">
-                <Calendar className="h-5 w-5 mr-1" /> Filter
+              <button 
+                onClick={() => setShowTradeHistory(true)}
+                className="text-blue-400 hover:text-blue-300 flex items-center bg-blue-500/10 hover:bg-blue-500/20 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <Calendar className="h-4 w-4 mr-1" /> View Full History
               </button>
             </div>
           </div>
           <div className="space-y-4">
-            {recentTrades.map(trade => {
+            {isLoadingTrades ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                <span className="ml-2 text-gray-400">Loading transaction history...</span>
+              </div>
+            ) : recentTrades.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">
+                No transaction history found. Start trading to build your ledger.
+              </div>
+            ) : (
+              recentTrades.map(trade => {
               const asset = assets.find(a => a.symbol === trade.asset);
               if (!asset) return null;
 
@@ -2244,7 +2524,8 @@ export default function PortfolioPage() {
                   </div>
                 </div>
               );
-            })}
+              })
+            )}
           </div>
         </div>
 
@@ -2255,10 +2536,10 @@ export default function PortfolioPage() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 overflow-y-auto"
             >
-              <div className="bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-2xl shadow-2xl border border-gray-700 p-4 w-full max-w-md my-4">
-                <div className="flex items-center justify-between mb-4">
+              <div className="bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-2xl shadow-2xl border border-gray-700 p-4 w-full max-w-md my-2">
+                <div className="flex items-center justify-between mb-3">
                   <div>
                     <h2 className="text-lg font-bold text-white">{selectedAsset.name}</h2>
                     <div className="flex items-center text-xs text-gray-400 mt-1">
@@ -2267,7 +2548,14 @@ export default function PortfolioPage() {
                       <span>{selectedAsset.exchange}</span>
                       <span className="mx-1">•</span>
                       <span className="capitalize">{selectedAsset.type}</span>
-                      {(selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')) && (
+                      {selectedAsset.type === 'index' && selectedAsset.lotSize && (
+                        <>
+                          <span className="mx-1">•</span>
+                          <span className="text-blue-400">Lot: {selectedAsset.lotSize}</span>
+                        </>
+                      )}
+                      {(selectedAsset.type === 'options' || 
+                        (selectedAsset.type === 'index' && (selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')))) && (
                         (() => {
                           // Extract strike price safely
                           const strikeMatch = selectedAsset.symbol.match(/\d+/);
@@ -2294,8 +2582,9 @@ export default function PortfolioPage() {
                 </div>
 
                 {/* Add option details box if it's an option */}
-                {(selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')) && (
-                  <div className="bg-gray-800/70 rounded-lg p-3 mb-4 border border-gray-700/50">
+                {(selectedAsset.type === 'options' || 
+                  (selectedAsset.type === 'index' && (selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')))) && (
+                  <div className="bg-gray-800/70 rounded-lg p-3 mb-3 border border-gray-700/50">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-sm font-medium text-white">Option Details</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${selectedAsset.symbol.includes('CE') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -2331,7 +2620,8 @@ export default function PortfolioPage() {
                   </div>
                 )}
 
-                <div className="space-y-4 max-h-[calc(100vh-8rem)] overflow-y-auto px-1">
+                <div className="max-h-[calc(100vh-180px)] overflow-y-auto pr-1">
+                  <div className="space-y-3">
                   {/* Order Type Selection */}
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">Order Type</label>
@@ -2468,7 +2758,8 @@ export default function PortfolioPage() {
                     </div>
                     
                     {/* Show calculation breakdown for options */}
-                    {(selectedAsset.type === 'options' || selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')) && (
+                      {(selectedAsset.type === 'options' || 
+                        (selectedAsset.type === 'index' && (selectedAsset.symbol.includes('CE') || selectedAsset.symbol.includes('PE')))) && (
                       <div className="text-xs text-gray-400 border-t border-gray-600 pt-1 mt-1">
                         <div className="flex justify-between">
                           <span>Calculation:</span>
@@ -2500,7 +2791,7 @@ export default function PortfolioPage() {
                   </div>
 
                   {/* Trading Buttons */}
-                  <div className="grid grid-cols-2 gap-3 mt-4">
+                    <div className="grid grid-cols-2 gap-3 mt-3">
                     <button
                       onClick={handleTrade}
                       className={`py-2 px-4 rounded-lg font-medium text-sm ${tradeType === 'buy' ? 'bg-green-500 hover:bg-green-600' : 'bg-red-500 hover:bg-red-600'} text-white transition-colors flex items-center justify-center`}
@@ -2512,6 +2803,7 @@ export default function PortfolioPage() {
                     >
                       Add to Watchlist
                     </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2526,15 +2818,15 @@ export default function PortfolioPage() {
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 overflow-y-auto"
             >
               <motion.div 
                 initial={{ scale: 0.95 }}
                 animate={{ scale: 1 }}
                 exit={{ scale: 0.95 }}
-                className="bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-2xl shadow-2xl border border-gray-700 p-6 w-full max-w-6xl my-4"
+                className="bg-gradient-to-br from-gray-800 via-gray-900 to-black rounded-2xl shadow-2xl border border-gray-700 p-4 w-full max-w-6xl my-2"
               >
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-3">
                   <h2 className="text-xl font-bold text-white">NIFTY Options Trading</h2>
                   <button
                     onClick={() => setShowOptionChain(false)}
@@ -2543,10 +2835,12 @@ export default function PortfolioPage() {
                     <X className="h-6 w-6" />
                   </button>
                 </div>
+                <div className="max-h-[calc(100vh-120px)] overflow-y-auto">
                 <OptionChain 
                   spotPrice={assets.find(a => a.symbol === '^NSEI')?.value || 0}
                   onStrikeSelect={handleOptionSelect}
                 />
+                </div>
               </motion.div>
             </motion.div>
           )}

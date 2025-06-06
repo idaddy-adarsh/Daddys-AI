@@ -1,12 +1,13 @@
 # DaddysAI
 
-A Next.js application with AI capabilities and authentication.
+A Next.js application with AI capabilities, authentication, and MongoDB integration for trading data.
 
 ## Deployment Instructions
 
 ### Prerequisites
 - Node.js 18.x or later
 - npm or yarn package manager
+- MongoDB Atlas account (or other MongoDB deployment)
 - Environment variables set up (see `.env.example`)
 
 ### Environment Variables
@@ -15,6 +16,14 @@ Make sure to set up the following environment variables in your deployment platf
 - `CLERK_SECRET_KEY`: Your Clerk secret key
 - `GOOGLE_AI_API_KEY`: Your Google AI API key
 - `NEXT_PUBLIC_VERCEL_ANALYTICS`: Set to "true" to enable analytics
+- `MONGODB_URI`: Your MongoDB connection string (e.g. `mongodb+srv://username:password@cluster.mongodb.net/daddysai?retryWrites=true&w=majority`)
+
+### MongoDB Setup
+1. Create a MongoDB Atlas account or use an existing MongoDB deployment
+2. Create a new cluster and database named `daddysai`
+3. Set up a database user with read/write permissions
+4. Add your IP address to the IP access list
+5. Get your connection string and add it to the `.env` file as `MONGODB_URI`
 
 ### Build and Deploy
 
@@ -61,7 +70,29 @@ The application is configured with `output: 'standalone'` in Next.js config, mak
 - [ ] Test authentication flow
 - [ ] Check AI features functionality
 - [ ] Verify static assets and images are loading
+- [ ] Test MongoDB connection and trade data storage
 - [ ] Monitor analytics if enabled
+
+## Features
+
+### Trading Platform
+- Real-time market data visualization
+- Virtual trading with paper money
+- Portfolio management
+- Transaction history and ledger
+
+### MongoDB Integration
+The application uses MongoDB to store:
+- User trade data
+- Trade history organized by date in a ledger collection
+- User-specific data isolation for security
+
+### Trade Ledger
+- Comprehensive trade history tracking
+- Date-based organization of trades
+- Filtering by date range
+- CSV export functionality
+- Detailed view of all transactions
 
 ## Support
 For issues and support, please create an issue in the repository.

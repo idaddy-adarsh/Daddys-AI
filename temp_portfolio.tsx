@@ -83,9 +83,9 @@ export default function PortfolioPage() {
 
   // Remove localStorage effect
   useEffect(() => {
-    console.log('Trades updated:', recentTrades);
-    console.log('Assets updated:', assets);
-    console.log('Margin updated:', marginDetails);
+    
+    
+    
   }, [recentTrades, assets, marginDetails]);
 
   // Market data state
@@ -163,7 +163,7 @@ export default function PortfolioPage() {
         shortName: meta.shortName
       };
     } catch (error) {
-      console.error(`Error fetching data for ${symbol}:`, error);
+      
       return null;
     }
   };
@@ -193,7 +193,7 @@ export default function PortfolioPage() {
               };
             }
           } catch (error) {
-            console.error(`Error processing stock ${stock.symbol}:`, error);
+            
           }
           return null;
         })
@@ -222,7 +222,7 @@ export default function PortfolioPage() {
                 };
               }
             } catch (error) {
-              console.error(`Error processing index ${index.symbol}:`, error);
+              
             }
             return null;
           })
@@ -241,7 +241,7 @@ export default function PortfolioPage() {
         return [...validStocksData, ...validIndicesData, ...existingOptions];
       });
     } catch (error) {
-      console.error('Error updating market data:', error);
+      
     } finally {
       setIsUpdating(false);
     }
@@ -257,7 +257,7 @@ export default function PortfolioPage() {
       try {
         await updateMarketData();
       } catch (error) {
-        console.error('Error updating market data:', error);
+        
       }
     }, 1000); // Update every second
 
@@ -285,7 +285,7 @@ export default function PortfolioPage() {
         }
       }
     } catch (error) {
-      console.error('Error initializing watchlist:', error);
+      
     }
   }, [assets]);
 
@@ -327,14 +327,14 @@ export default function PortfolioPage() {
             dayProfit += tradePnL;
           }
         } catch (e) {
-          console.error('Error calculating day P&L:', e);
+          
         }
       });
 
       setTotalPnL(totalProfit);
       setDayPnL(dayProfit);
     } catch (error) {
-      console.error('Error calculating P&L:', error);
+      
       // Set defaults on error
       setTotalPnL(0);
       setDayPnL(0);
@@ -510,7 +510,7 @@ export default function PortfolioPage() {
               }
             })
             .catch(err => {
-              console.error('Error fetching option data:', err);
+              
               // Fall back to random price updates
               updateWithRandomPrices();
             });
@@ -520,7 +520,7 @@ export default function PortfolioPage() {
         }
       }
     } catch (error) {
-      console.error('Error in safeUpdateOptionPrices:', error);
+      
       // Fall back to random price updates
       updateWithRandomPrices();
     }
@@ -549,7 +549,7 @@ export default function PortfolioPage() {
         }
       };
     } catch (error) {
-      console.error('Error setting up option price updates:', error);
+      
     }
   }, [safeUpdateOptionPrices]);
 
@@ -813,8 +813,8 @@ export default function PortfolioPage() {
 
   // Add useEffect for debugging
   useEffect(() => {
-    console.log('Current Trades:', recentTrades);
-    console.log('Current Assets:', assets);
+    
+    
   }, [recentTrades, assets]);
 
   // Add this debugging effect
@@ -823,14 +823,14 @@ export default function PortfolioPage() {
     const activeTrades = recentTrades.filter(trade => 
       trade.status === 'executed' || trade.status === 'partially_completed'
     );
-    console.log('Active trades that should be displayed:', activeTrades);
+    
     
     // Check if assets exist for trades
     const missingAssets = activeTrades.filter(trade => 
       !assets.find(a => a.symbol === trade.asset)
     );
     if (missingAssets.length > 0) {
-      console.warn('Trades with missing assets:', missingAssets);
+      
     }
   }, [recentTrades, assets]);
 
@@ -1450,7 +1450,7 @@ export default function PortfolioPage() {
                       
                       // Skip if asset not found
                       if (!asset) {
-                        console.warn(`Asset not found for trade ${trade.id}: ${trade.asset}`);
+                        
                         return null;
                       }
                       

@@ -40,7 +40,7 @@ export async function loadCookies() {
     await execute(command);
     return true;
   } catch (error) {
-    console.error('Error loading cookies:', error);
+    
     return false;
   }
 }
@@ -73,7 +73,7 @@ export async function getOptionChain(instrument: string) {
     }
     throw new Error('Invalid JSON response');
   } catch (error) {
-    console.error('Error fetching option chain:', error);
+    
     // If error occurs, try refreshing cookies and retry once
     await loadCookies();
     const retryResponse = await execute(command);

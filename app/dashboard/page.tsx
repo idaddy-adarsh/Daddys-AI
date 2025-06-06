@@ -52,15 +52,15 @@ export default function DashboardPage() {
         setTimeout(() => {
           if (window.puter?.ai) {
             setIsPuterLoaded(true);
-            console.log('Puter.js loaded successfully');
+            
           } else {
-            console.error('Puter.js failed to initialize properly');
+            
           }
         }, 1000);
       };
 
       script.onerror = () => {
-        console.error('Failed to load Puter.js');
+        
       };
 
       document.body.appendChild(script);
@@ -211,7 +211,7 @@ export default function DashboardPage() {
     }
     
     try {
-      console.log('Sending message to API...');
+      
       
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -242,7 +242,7 @@ export default function DashboardPage() {
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error: any) {
-      console.error('Error in chat:', error);
+      
       // Add error message to chat
       setMessages(prev => [...prev, { 
         role: 'assistant', 

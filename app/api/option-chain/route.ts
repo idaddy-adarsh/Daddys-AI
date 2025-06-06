@@ -225,7 +225,7 @@ function transformUpstoxData(upstoxData: any): OptionChainResponse {
       data
     };
   } catch (error) {
-    console.error("Error transforming Upstox data:", error);
+    
     throw new Error("Failed to transform Upstox data");
   }
 }
@@ -271,7 +271,7 @@ export async function GET(request: Request) {
         
         return NextResponse.json(transformedData);
       } catch (error) {
-        console.error("Error fetching from Upstox API:", error);
+        
         // Return error instead of using simulated data
         return NextResponse.json(
           { error: 'Failed to fetch real-time option chain data', status: 'error' },
@@ -286,7 +286,7 @@ export async function GET(request: Request) {
       );
     }
   } catch (error) {
-    console.error("Error in option chain API:", error);
+    
     return NextResponse.json(
       { error: 'Failed to fetch option chain data', status: 'error' },
       { status: 500 }
@@ -345,7 +345,7 @@ function calculateNiftyExpiry(requestedExpiry: string): string {
     
     return `${day}-${month}-${year}`;
   } catch (error) {
-    console.error("Error calculating NIFTY expiry:", error);
+    
     
     // Fallback to the current date + 1 week (approximate next expiry)
     const fallbackDate = new Date();
