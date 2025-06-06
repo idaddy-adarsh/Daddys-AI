@@ -54,7 +54,7 @@ interface Indicator {
   id: string;
   name: string;
   enabled: boolean;
-  type: 'ltp' | 'ma' | 'bollinger' | 'rsi';
+  type: 'ltp' | 'bollinger' | 'fibonacci' | 'ichimoku';
   color?: string;
   series?: any;
   params?: any;
@@ -333,6 +333,56 @@ const formatTime = (timestamp: number): string => {
   });
 };
 
+// Add this helper function to ensure data is properly ordered by time with no duplicates
+const ensureUniqueTimeOrdering = <T extends { time: Time }>(data: T[]): T[] => {
+  // Create a map to store the latest value for each timestamp
+  const timeMap = new Map<number, T>();
+  
+  // For each data point, keep only the latest one for each timestamp
+  data.forEach(item => {
+    const timeValue = typeof item.time === 'number' ? item.time : Number(item.time);
+    timeMap.set(timeValue, item);
+  });
+  
+  // Convert map back to array and sort by time
+  return Array.from(timeMap.values())
+    .sort((a, b) => {
+      const timeA = typeof a.time === 'number' ? a.time : Number(a.time);
+      const timeB = typeof b.time === 'number' ? b.time : Number(b.time);
+      return timeA - timeB;
+  });
+};
+
+// Add this helper function to smooth the data points for curves
+const smoothData = <T extends { time: Time; value: number }>(data: T[], smoothingFactor = 5): T[] => {
+  if (data.length <= smoothingFactor) return data;
+  
+  const result: T[] = [];
+  
+  // Keep first point
+  result.push(data[0]);
+  
+  // Apply moving average to middle points
+  for (let i = 1; i < data.length - 1; i++) {
+    const windowStart = Math.max(0, i - smoothingFactor);
+    const windowEnd = Math.min(data.length - 1, i + smoothingFactor);
+    const windowPoints = data.slice(windowStart, windowEnd + 1);
+    
+    const sum = windowPoints.reduce((acc, point) => acc + point.value, 0);
+    const average = sum / windowPoints.length;
+    
+    result.push({
+      ...data[i],
+      value: average
+    });
+  }
+  
+  // Keep last point
+  result.push(data[data.length - 1]);
+  
+  return result;
+};
+
 export default function AnalysisPage() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
@@ -360,11 +410,9 @@ export default function AnalysisPage() {
   // Add state for indicators
   const [indicators, setIndicators] = useState<Indicator[]>([
     { id: 'ltp', name: 'LTP Lines', enabled: false, type: 'ltp' },
-    { id: 'ma20', name: 'MA 20', enabled: false, type: 'ma', color: '#2962FF', params: { period: 20 } },
-    { id: 'ma50', name: 'MA 50', enabled: false, type: 'ma', color: '#FF6D00', params: { period: 50 } },
-    { id: 'ma200', name: 'MA 200', enabled: false, type: 'ma', color: '#E91E63', params: { period: 200 } },
     { id: 'bollinger', name: 'Bollinger Bands', enabled: false, type: 'bollinger', params: { period: 20, stdDev: 2 } },
-    { id: 'rsi', name: 'RSI', enabled: false, type: 'rsi', params: { period: 14 } }
+    { id: 'fibonacci', name: 'Fibonacci Retracement', enabled: false, type: 'fibonacci' },
+    { id: 'ichimoku', name: 'Ichimoku Cloud', enabled: false, type: 'ichimoku' }
   ]);
   const [isIndicatorsMenuOpen, setIsIndicatorsMenuOpen] = useState(false);
   const indicatorsMenuRef = useRef<HTMLDivElement>(null);
@@ -1012,7 +1060,8 @@ export default function AnalysisPage() {
       time: Number(item.time) as Time
     }));
 
-    candlestickSeriesRef.current.setData(formattedData);
+    // Ensure data is properly ordered with no duplicates
+    candlestickSeriesRef.current.setData(ensureUniqueTimeOrdering(formattedData));
 
     // Set visible range to show full trading day (9:15 AM to 3:30 PM)
     const today = new Date();
@@ -1232,56 +1281,6 @@ export default function AnalysisPage() {
     return result;
   };
 
-  // Function to calculate RSI
-  const calculateRSI = (data: ChartData[], period: number): {time: Time, value: number}[] => {
-    const result: {time: Time, value: number}[] = [];
-    
-    if (data.length <= period) return result;
-    
-    // Calculate price changes
-    const changes: number[] = [];
-    for (let i = 1; i < data.length; i++) {
-      changes.push(data[i].close - data[i-1].close);
-    }
-    
-    // Calculate initial average gain and loss
-    let avgGain = 0;
-    let avgLoss = 0;
-    
-    for (let i = 0; i < period; i++) {
-      if (changes[i] >= 0) {
-        avgGain += changes[i];
-      } else {
-        avgLoss += Math.abs(changes[i]);
-      }
-    }
-    
-    avgGain /= period;
-    avgLoss /= period;
-    
-    // Calculate RSI for each point
-    for (let i = period; i < data.length - 1; i++) {
-      // Update average gain and loss using smoothing method
-      const change = changes[i];
-      const newGain = change >= 0 ? change : 0;
-      const newLoss = change < 0 ? Math.abs(change) : 0;
-      
-      avgGain = ((avgGain * (period - 1)) + newGain) / period;
-      avgLoss = ((avgLoss * (period - 1)) + newLoss) / period;
-      
-      // Calculate RS and RSI
-      const rs = avgGain / (avgLoss === 0 ? 0.001 : avgLoss); // Avoid division by zero
-      const rsi = 100 - (100 / (1 + rs));
-      
-      result.push({
-        time: Number(data[i+1].time) as Time,
-        value: rsi
-      });
-    }
-    
-    return result;
-  };
-
   // Function to apply indicators
   const applyIndicators = () => {
     if (!chartRef.current || !candlestickSeriesRef.current || chartData.length === 0) return;
@@ -1309,116 +1308,267 @@ export default function AnalysisPage() {
           // LTP lines are handled separately in the useEffect
           break;
           
-        case 'ma':
-          if (indicator.params?.period) {
-            const maData = calculateMA(chartData, indicator.params.period);
-            const series = chartRef.current.addLineSeries({
-              color: indicator.color || '#2962FF',
-              lineWidth: 2,
-              priceLineVisible: false,
-              lastValueVisible: true,
-              title: `MA ${indicator.params.period}`,
-            });
-            series.setData(maData);
-            updatedIndicators[index].series = series;
-          }
-          break;
-          
         case 'bollinger':
           if (indicator.params?.period && indicator.params?.stdDev) {
             const bbData = calculateBollingerBands(chartData, indicator.params.period, indicator.params.stdDev);
             
-            // Middle band
+            // Middle band - blue
             const middleSeries = chartRef.current.addLineSeries({
-              color: '#2962FF',
+              color: '#2962FF', // Blue color
               lineWidth: 2,
               priceLineVisible: false,
               lastValueVisible: true,
               title: `BB Middle (${indicator.params.period})`,
             });
-            middleSeries.setData(bbData.map(item => ({
+            const middleData = bbData.map(item => ({
               time: item.time,
               value: item.middle
-            })));
+            }));
+            // Apply smoothing to the data
+            const smoothedMiddleData = smoothData(middleData, 3);
+            middleSeries.setData(ensureUniqueTimeOrdering(smoothedMiddleData));
             
-            // Upper band
+            // Upper band - red
             const upperSeries = chartRef.current.addLineSeries({
-              color: '#2962FF',
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
+              color: '#FF4560', // Red color
+              lineWidth: 2,
+              lineStyle: LineStyle.Solid,
               priceLineVisible: false,
               lastValueVisible: true,
               title: `BB Upper (${indicator.params.period}, ${indicator.params.stdDev})`,
             });
-            upperSeries.setData(bbData.map(item => ({
+            const upperData = bbData.map(item => ({
               time: item.time,
               value: item.upper
-            })));
+            }));
+            // Apply smoothing to the data
+            const smoothedUpperData = smoothData(upperData, 3);
+            upperSeries.setData(ensureUniqueTimeOrdering(smoothedUpperData));
             
-            // Lower band
+            // Lower band - green
             const lowerSeries = chartRef.current.addLineSeries({
-              color: '#2962FF',
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
+              color: '#00E396', // Green color
+              lineWidth: 2,
+              lineStyle: LineStyle.Solid,
               priceLineVisible: false,
               lastValueVisible: true,
               title: `BB Lower (${indicator.params.period}, ${indicator.params.stdDev})`,
             });
-            lowerSeries.setData(bbData.map(item => ({
+            const lowerData = bbData.map(item => ({
               time: item.time,
               value: item.lower
-            })));
+            }));
+            // Apply smoothing to the data
+            const smoothedLowerData = smoothData(lowerData, 3);
+            lowerSeries.setData(ensureUniqueTimeOrdering(smoothedLowerData));
             
             // Store all series references
             updatedIndicators[index].series = [middleSeries, upperSeries, lowerSeries];
           }
           break;
           
-        case 'rsi':
-          if (indicator.params?.period) {
-            const rsiData = calculateRSI(chartData, indicator.params.period);
+        case 'fibonacci':
+          // Calculate Fibonacci retracement levels
+          if (chartData.length > 0) {
+            // Find high and low in the visible data
+            const highPrice = Math.max(...chartData.map(candle => candle.high));
+            const lowPrice = Math.min(...chartData.map(candle => candle.low));
+            const priceDiff = highPrice - lowPrice;
             
-            // Create a separate pane for RSI
-            const rsiSeries = chartRef.current.addLineSeries({
+            // Fibonacci levels: 0%, 23.6%, 38.2%, 50%, 61.8%, 78.6%, 100%
+            const levels = [
+              { level: 0, value: highPrice, color: '#FF5252' },
+              { level: 0.236, value: highPrice - priceDiff * 0.236, color: '#FF9800' },
+              { level: 0.382, value: highPrice - priceDiff * 0.382, color: '#FFC107' },
+              { level: 0.5, value: highPrice - priceDiff * 0.5, color: '#FFEB3B' },
+              { level: 0.618, value: highPrice - priceDiff * 0.618, color: '#8BC34A' },
+              { level: 0.786, value: highPrice - priceDiff * 0.786, color: '#4CAF50' },
+              { level: 1, value: lowPrice, color: '#2196F3' }
+            ];
+            
+            const fibSeries = levels.map(level => {
+              const series = chartRef.current.addLineSeries({
+                color: level.color,
+                lineWidth: 1,
+                lineStyle: LineStyle.Dashed,
+              priceLineVisible: false,
+              lastValueVisible: true,
+                title: `Fib ${level.level * 100}%`,
+              });
+              
+              // Create a horizontal line across the chart
+              if (chartData.length > 1) {
+                const startTime = Number(chartData[0].time);
+                const endTime = Number(chartData[chartData.length - 1].time);
+                
+                // Ensure the times are different to avoid duplicate time error
+                if (startTime !== endTime) {
+                  series.setData([
+                    { time: startTime as Time, value: level.value },
+                    { time: endTime as Time, value: level.value }
+                  ]);
+                } else {
+                  // If times are the same, create a single point
+                  series.setData([
+                    { time: startTime as Time, value: level.value }
+                  ]);
+                }
+              }
+              
+              return series;
+            });
+            
+            updatedIndicators[index].series = fibSeries;
+          }
+          break;
+          
+        case 'ichimoku':
+          // Calculate Ichimoku Cloud components
+          const conversionPeriod = 9;
+          const basePeriod = 26;
+          const leadingSpanBPeriod = 52;
+          const displacement = 26;
+          
+          if (chartData.length >= leadingSpanBPeriod) {
+            // Calculate Tenkan-sen (Conversion Line): (highest high + lowest low) / 2 for conversionPeriod
+            const tenkanSen = chartData.map((_, i) => {
+              if (i < conversionPeriod - 1) return null;
+              
+              const periodData = chartData.slice(i - conversionPeriod + 1, i + 1);
+              const highestHigh = Math.max(...periodData.map(d => d.high));
+              const lowestLow = Math.min(...periodData.map(d => d.low));
+              
+              return {
+                time: Number(chartData[i].time) as Time,
+                value: (highestHigh + lowestLow) / 2
+              };
+            }).filter(item => item !== null);
+            
+            // Calculate Kijun-sen (Base Line): (highest high + lowest low) / 2 for basePeriod
+            const kijunSen = chartData.map((_, i) => {
+              if (i < basePeriod - 1) return null;
+              
+              const periodData = chartData.slice(i - basePeriod + 1, i + 1);
+              const highestHigh = Math.max(...periodData.map(d => d.high));
+              const lowestLow = Math.min(...periodData.map(d => d.low));
+              
+              return {
+                time: Number(chartData[i].time) as Time,
+                value: (highestHigh + lowestLow) / 2
+              };
+            }).filter(item => item !== null);
+            
+            // Calculate Senkou Span A (Leading Span A): (Tenkan-sen + Kijun-sen) / 2, displaced forward
+            const senkouSpanA = [];
+            for (let i = 0; i < chartData.length; i++) {
+              if (i < basePeriod - 1) continue;
+            
+              const tenkanIndex = i - (basePeriod - conversionPeriod);
+              if (tenkanIndex < 0) continue;
+              
+              const tenkan = (Math.max(...chartData.slice(tenkanIndex - conversionPeriod + 1, tenkanIndex + 1).map(d => d.high)) +
+                              Math.min(...chartData.slice(tenkanIndex - conversionPeriod + 1, tenkanIndex + 1).map(d => d.low))) / 2;
+              
+              const kijun = (Math.max(...chartData.slice(i - basePeriod + 1, i + 1).map(d => d.high)) +
+                            Math.min(...chartData.slice(i - basePeriod + 1, i + 1).map(d => d.low))) / 2;
+              
+              // Displace forward
+              const displaceTime = i + displacement < chartData.length 
+                ? Number(chartData[i + displacement].time) as Time
+                : Number(chartData[chartData.length - 1].time) as Time;
+              
+              senkouSpanA.push({
+                time: displaceTime,
+                value: (tenkan + kijun) / 2
+              });
+            }
+            
+            // Calculate Senkou Span B (Leading Span B): (highest high + lowest low) / 2 for leadingSpanBPeriod, displaced forward
+            const senkouSpanB = [];
+            for (let i = 0; i < chartData.length; i++) {
+              if (i < leadingSpanBPeriod - 1) continue;
+              
+              const periodData = chartData.slice(i - leadingSpanBPeriod + 1, i + 1);
+              const highestHigh = Math.max(...periodData.map(d => d.high));
+              const lowestLow = Math.min(...periodData.map(d => d.low));
+              
+              // Displace forward
+              const displaceTime = i + displacement < chartData.length 
+                ? Number(chartData[i + displacement].time) as Time
+                : Number(chartData[chartData.length - 1].time) as Time;
+              
+              senkouSpanB.push({
+                time: displaceTime,
+                value: (highestHigh + lowestLow) / 2
+              });
+            }
+            
+            // Calculate Chikou Span (Lagging Span): Current closing price, displaced backwards
+            const chikouSpan = [];
+            for (let i = displacement; i < chartData.length; i++) {
+              chikouSpan.push({
+                time: Number(chartData[i - displacement].time) as Time,
+                value: chartData[i].close
+              });
+            }
+            
+            // Create series for each component
+            const tenkanSeries = chartRef.current.addLineSeries({
+              color: '#FF5252',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: 'Tenkan-sen (9)',
+            });
+            tenkanSeries.setData(ensureUniqueTimeOrdering(tenkanSen));
+            
+            const kijunSeries = chartRef.current.addLineSeries({
+              color: '#2196F3',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: 'Kijun-sen (26)',
+            });
+            kijunSeries.setData(ensureUniqueTimeOrdering(kijunSen));
+            
+            const senkouSpanASeries = chartRef.current.addLineSeries({
+              color: 'rgba(76, 175, 80, 0.5)',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: 'Senkou Span A',
+            });
+            senkouSpanASeries.setData(ensureUniqueTimeOrdering(senkouSpanA));
+            
+            const senkouSpanBSeries = chartRef.current.addLineSeries({
+              color: 'rgba(255, 82, 82, 0.5)',
+              lineWidth: 2,
+              priceLineVisible: false,
+              lastValueVisible: true,
+              title: 'Senkou Span B',
+            });
+            senkouSpanBSeries.setData(ensureUniqueTimeOrdering(senkouSpanB));
+            
+            const chikouSeries = chartRef.current.addLineSeries({
               color: '#9C27B0',
               lineWidth: 2,
               priceLineVisible: false,
               lastValueVisible: true,
-              title: `RSI (${indicator.params.period})`,
-              pane: 1,
+              title: 'Chikou Span',
             });
+            chikouSeries.setData(ensureUniqueTimeOrdering(chikouSpan));
             
-            rsiSeries.setData(rsiData);
+            // Create cloud area between Senkou Span A and B
+            // This is a simplified approach - ideally we would use an area series
+            // but we'll approximate with lines for now
             
-            // Add horizontal lines at 70 and 30 levels
-            const rsiUpperLine = chartRef.current.addLineSeries({
-              color: '#FF5252',
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
-              pane: 1,
-            });
-            
-            const rsiLowerLine = chartRef.current.addLineSeries({
-              color: '#4CAF50',
-              lineWidth: 1,
-              lineStyle: LineStyle.Dashed,
-              pane: 1,
-            });
-            
-            if (rsiData.length > 0) {
-              rsiUpperLine.setData([
-                { time: rsiData[0].time, value: 70 },
-                { time: rsiData[rsiData.length - 1].time, value: 70 }
-              ]);
-              
-              rsiLowerLine.setData([
-                { time: rsiData[0].time, value: 30 },
-                { time: rsiData[rsiData.length - 1].time, value: 30 }
-              ]);
-            }
-            
-            // Store all series references
-            updatedIndicators[index].series = [rsiSeries, rsiUpperLine, rsiLowerLine];
+            updatedIndicators[index].series = [
+              tenkanSeries, 
+              kijunSeries, 
+              senkouSpanASeries, 
+              senkouSpanBSeries, 
+              chikouSeries
+            ];
           }
           break;
       }
